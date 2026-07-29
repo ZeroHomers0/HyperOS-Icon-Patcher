@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#111318">
+  <title>HyperOS 图标补全器</title>
+  <link rel="stylesheet" href="style-098.css">
+</head>
+<body>
+  <header>
+    <div>
+      <p class="eyebrow">KERNELSU · HYPEROS</p>
+      <h1>图标补全器</h1>
+    </div>
+    <select id="appearance" class="appearance" aria-label="界面外观">
+      <option value="system">跟随系统</option>
+      <option value="light">浅色</option>
+      <option value="dark">深色</option>
+    </select>
+  </header>
+
+  <main>
+    <details class="card guide">
+      <summary>使用方法与注意事项</summary>
+      <ol>
+        <li>先在小米主题商店下载一个不使用的图标主题。</li>
+        <li>在“主题商店图标源”中选择最近组件，并加载为基础。</li>
+        <li>点击应用名称，为需要适配的应用选择 PNG 图标。</li>
+        <li>点击“生成修改结果”，再写入选中的商店组件。</li>
+        <li>打开主题商店，在“我的／图标”中应用该占位主题。</li>
+        <li>如果桌面图标没有立即变化，点击“刷新系统桌面图标”；系统桌面会短暂重启。</li>
+      </ol>
+      <p>仅支持 PNG。模块会自动调整尺寸，确保每个新增图标不超过 50KB。写入前会自动备份。</p>
+    </details>
+
+    <section class="card">
+      <div class="section-title">
+        <div>
+          <h2>选择应用</h2>
+          <p id="appCount" class="muted">加载应用列表中……</p>
+        </div>
+        <button id="reloadApps" class="icon-button" title="刷新">↻</button>
+      </div>
+      <input id="search" class="search" type="search" placeholder="搜索应用名称">
+      <div id="appList" class="app-list"></div>
+    </section>
+
+    <section class="card">
+      <h2>待加入图标</h2>
+      <div id="selectionEmpty" class="empty">点击上方应用并选择图片</div>
+      <div id="selectionList" class="selection-list"></div>
+    </section>
+
+    <section class="card cache-card">
+      <div class="section-title">
+        <div>
+          <h2>主题商店图标源</h2>
+          <p id="cacheInfo" class="muted">扫描主题商店已下载的图标组件</p>
+        </div>
+        <button id="cacheReload" class="icon-button" title="刷新">↻</button>
+      </div>
+      <select id="cacheSelect" class="search">
+        <option value="">尚未扫描</option>
+      </select>
+      <p id="cacheSelectedInfo" class="hint">请先在小米主题商店下载一个不使用的图标主题，作为占位主题。</p>
+      <div id="selectedTheme" class="theme-detail">尚未加载商店图标组件</div>
+      <div class="actions vertical cache-actions">
+        <button id="cacheLoad">加载选中组件作为基础</button>
+        <button id="buildBtn">生成修改结果</button>
+        <button id="cachePatch" class="primary" disabled>写入选中的商店组件</button>
+        <button id="cacheMerge" disabled>合并主题更新与自定义图标</button>
+        <button id="cacheOpen">打开主题商店并应用</button>
+        <button id="refreshLauncher">刷新系统桌面图标</button>
+        <button id="cacheRestore" class="danger" disabled>恢复该组件最近备份</button>
+      </div>
+      <p class="hint">操作顺序：加载商店组件 → 选择应用和图片 → 生成修改结果 → 写回组件 → 在主题商店“我的／图标”中应用占位主题。</p>
+    </section>
+
+    <pre id="log" class="log">等待操作</pre>
+  </main>
+
+  <input id="iconInput" type="file" accept="image/png,.png" hidden>
+  <script type="module" src="app-094.js"></script>
+  <script type="module" src="cache-098.js"></script>
+  <script src="theme-094.js"></script>
+  <script src="ui-098.js"></script>
+</body>
+</html>
