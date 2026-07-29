@@ -166,6 +166,15 @@ input[type=file] { display: none; }
 .selection-meta strong { display: block; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
 .selection-meta small { color: var(--muted); }
 .remove { padding: 7px 10px; color: var(--danger); }
+.recipe-list { display: grid; min-width: 0; gap: 10px; }
+.recipe-item { width: 100%; min-width: 0; padding: 12px; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; }
+.recipe-head { display: flex; min-width: 0; align-items: center; gap: 11px; }
+.recipe-head img { width: 46px; height: 46px; border-radius: 12px; object-fit: contain; background: var(--card-2); }
+.recipe-meta { min-width: 0; flex: 1; }
+.recipe-meta strong, .recipe-meta small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recipe-meta small { margin-top: 4px; color: var(--muted); }
+.recipe-actions { display: grid; min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.recipe-actions button { min-width: 0; padding: 9px 6px; overflow-wrap: anywhere; white-space: normal; font-size: 12px; }
 .empty { padding: 20px; border: 1px dashed var(--line); border-radius: 14px; color: var(--muted); text-align: center; }
 .warning { border-color: #443223; }
 .log {

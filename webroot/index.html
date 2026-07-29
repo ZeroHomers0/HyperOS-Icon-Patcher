@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#111318">
   <title>HyperOS 图标补全器</title>
-  <link rel="stylesheet" href="style-110.css">
+  <link rel="stylesheet" href="style-110.css?v=127">
 </head>
 <body>
   <header>
@@ -77,13 +77,27 @@
       <p class="hint">操作顺序：加载商店组件 → 选择应用和图片 → 生成修改结果 → 写回组件 → 在主题商店“我的／图标”中应用占位主题。</p>
     </section>
 
+    <section class="card">
+      <div class="section-title">
+        <div>
+          <h2>管理自定义图标</h2>
+          <p id="recipeInfo" class="muted">读取已保存的自定义图标配置</p>
+        </div>
+        <button id="recipeReload" class="icon-button" title="刷新">↻</button>
+      </div>
+      <div id="recipeEmpty" class="empty">尚未保存自定义图标</div>
+      <div id="recipeList" class="recipe-list"></div>
+      <p class="hint">“仅删除配置”不会立即修改主题；“删除并恢复主题”会从干净基础重新应用其余配置，再安全写入当前选择的组件。</p>
+    </section>
+
     <pre id="log" class="log">等待操作</pre>
   </main>
 
   <input id="iconInput" type="file" accept="image/png,.png" hidden>
   <script src="ui-101.js"></script>
-  <script type="module" src="app-111.js"></script>
-  <script type="module" src="cache-101.js"></script>
+  <script type="module" src="app-121.js?v=131"></script>
+  <script type="module" src="cache-101.js?v=124"></script>
+  <script type="module" src="recipe-123.js?v=125"></script>
   <script src="theme-094.js"></script>
 </body>
 </html>

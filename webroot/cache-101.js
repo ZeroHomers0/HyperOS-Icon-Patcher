@@ -141,14 +141,8 @@ ${e.textContent}`.slice(0, 6e3);
       {
         t("cacheMerge").disabled = true, t("cacheMerge").textContent = "\u6B63\u5728\u5408\u5E76\u2026";
         try {
-          let e = Number(await l("prepare_cache", u));
-          if (!Number.isFinite(e) || e <= 0) throw new Error("\u65E0\u6CD5\u8BFB\u53D6\u66F4\u65B0\u540E\u7684\u7EC4\u4EF6");
-          let a = 24e4, n = [];
-          for (let c = 0; c < e; c += a) n.push(await l("read_chunk", String(c), String(Math.min(a, e - c))));
-          if (!window.HIP?.loadCacheSource || !window.HIP?.mergeSavedCustom) throw new Error("\u5408\u5E76\u5F15\u64CE\u5C1A\u672A\u5C31\u7EEA");
-          window.HIP.loadCacheSource(n.join("").replace(/\s/g, ""), i.find((c) => c.name === u)?.label || "\u672A\u77E5\u4E3B\u9898", u);
-          let r = await window.HIP.mergeSavedCustom(), s = await l("patch_cache", u);
-          o(`\u66F4\u65B0\u5408\u5E76\u5DF2\u5199\u5165\uFF1A\u4E3B\u9898\u65B0\u7248\u4F18\u5148\uFF0C\u8865\u56DE ${r.merged} \u4E2A\uFF0C\u8DF3\u8FC7\u51B2\u7A81 ${r.conflicts} \u4E2A\uFF0C\u5907\u4EFD\uFF1A${s.replace(/^OK:/, "")}`), await C();
+          let e = (await l("fast_merge", u)).split(":"), a = Number(e[1] || 0), n = Number(e[2] || 0), r = await l("patch_cache", u);
+          o(`更新合并已写入：主题新版优先，补回 ${n} 个，跳过冲突 ${Math.max(0, a - n)} 个，已使用手机端快速合并，备份：${r.replace(/^OK:/, "")}`), await C();
         } catch (e) {
           E(`\u66F4\u65B0\u5408\u5E76\u5931\u8D25\uFF1A${e.message}`);
         } finally {
