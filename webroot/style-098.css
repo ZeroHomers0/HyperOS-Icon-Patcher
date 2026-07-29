@@ -58,6 +58,44 @@ main { max-width: 760px; margin: 0 auto; padding: 16px 14px 42px; }
 .muted, .hint { color: var(--muted); }
 .muted { margin-bottom: 12px; font-size: 13px; }
 .hint { margin: 12px 0 0; font-size: 11px; line-height: 1.55; }
+
+.toast-region {
+  position: fixed;
+  z-index: 1000;
+  left: 16px;
+  right: 16px;
+  bottom: calc(20px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  max-width: 520px;
+  padding: 11px 15px;
+  border: 1px solid color-mix(in srgb, #ff6b6b 45%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, #181b21 94%, transparent);
+  color: #fff;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .28);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+  animation: toast-in .18s ease-out;
+}
+
+.toast.is-leaving {
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity .18s ease, transform .18s ease;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 .theme-detail {
   margin: 12px 0; padding: 12px; border: 1px solid var(--line); border-radius: 13px;
   background: #101318; color: #cbd2de; font-size: 12px; line-height: 1.65;

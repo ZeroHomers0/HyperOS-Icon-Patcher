@@ -4,6 +4,30 @@
     className: "loading-spinner"
   });
 
+  const toastRegion = Object.assign(document.createElement("div"), {
+    className: "toast-region"
+  });
+  toastRegion.setAttribute("role", "status");
+  toastRegion.setAttribute("aria-live", "polite");
+  document.body.appendChild(toastRegion);
+
+  const showToast = (message) => {
+    const toast = Object.assign(document.createElement("div"), {
+      className: "toast",
+      textContent: String(message || "操作失败")
+    });
+    toastRegion.appendChild(toast);
+    while (toastRegion.childElementCount > 3) toastRegion.firstElementChild.remove();
+    setTimeout(() => {
+      toast.classList.add("is-leaving");
+      setTimeout(() => toast.remove(), 200);
+    }, 3200);
+  };
+
+  // 旧模块使用 alert 显示校验错误；统一替换为不阻塞页面的 Toast。
+  window.HIPToast = showToast;
+  window.alert = showToast;
+
   for (const button of ["reloadApps", "cacheReload"].map(byId).filter(Boolean)) {
     let startedAt = 0;
     let stopTimer = 0;
@@ -61,6 +85,7 @@
       log.textContent = `[${new Date().toLocaleTimeString()}] 系统桌面已刷新，图标会重新载入\n${log.textContent}`.slice(0, 6000);
     } catch (error) {
       log.textContent = `[${new Date().toLocaleTimeString()}] 桌面刷新失败：${error.message}\n${log.textContent}`.slice(0, 6000);
+      showToast(`桌面刷新失败：${error.message}`);
     } finally {
       launcherButton.classList.remove("button-loading");
       launcherButton.textContent = "刷新系统桌面图标";
