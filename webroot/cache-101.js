@@ -1,174 +1,160 @@
 (() => {
-  (() => {
-    var m = 0;
-    function D(u) {
-      return `${u}_callback_${Date.now()}_${m++}`;
-    }
-    function f(u, e) {
-      return typeof e > "u" && (e = {}), new Promise((a, n) => {
-        let r = D("exec");
-        let timeout = setTimeout(() => {
-          s(r);
-          n(new Error("设备命令响应超时，请稍后重试"));
-        }, 6e4);
-        window[r] = (c, F, $) => {
-          clearTimeout(timeout), a({ errno: c, stdout: F, stderr: $ }), s(r);
-        };
-        function s(c) {
-          clearTimeout(timeout);
-          delete window[c];
-        }
-        try {
-          ksu.exec(u, JSON.stringify(e), r);
-        } catch (c) {
-          n(c), s(r);
-        }
+  const byId = (id) => document.getElementById(id);
+  const script = "/data/adb/modules/hyper_icon_patcher/scripts/backend.sh";
+  const quote = (value) => `'${String(value).replaceAll("'", "'\\''")}'`;
+  let callbackIndex = 0;
+  let themes = [];
+
+  function notify(message) {
+    if (window.HIPNotify) window.HIPNotify(message, true);
+    else window.alert(message);
+  }
+
+  function log(message) {
+    const target = byId("log");
+    target.textContent = `[${new Date().toLocaleTimeString()}] ${message}\n${target.textContent}`.slice(0, 6000);
+  }
+
+  function exec(operation, ...args) {
+    return new Promise((resolve, reject) => {
+      const callback = `hip_cache_${Date.now()}_${callbackIndex++}`;
+      const timer = setTimeout(() => {
+        delete window[callback];
+        reject(new Error("设备命令响应超时，请稍后重试"));
+      }, 60000);
+      window[callback] = (errno, stdout, stderr) => {
+        clearTimeout(timer);
+        delete window[callback];
+        const output = String(stdout || "").trim();
+        if (errno !== 0 || output.startsWith("ERROR:")) {
+          reject(new Error(output.replace(/^ERROR:/, "") || stderr || `命令失败：${errno}`));
+        } else resolve(output);
+      };
+      try {
+        ksu.exec(["sh", script, operation, ...args.map(quote)].join(" "), "{}", callback);
+      } catch (error) {
+        clearTimeout(timer);
+        delete window[callback];
+        reject(error);
+      }
+    });
+  }
+
+  const sizeText = (size) => size >= 1048576 ? `${(size / 1048576).toFixed(1)} MB` : `${Math.round(size / 1024)} KB`;
+  function decodeLabel(value) {
+    try { return new TextDecoder().decode(Uint8Array.from(atob(value || ""), (char) => char.charCodeAt(0))); }
+    catch { return ""; }
+  }
+
+  function selected() {
+    return themes.find((theme) => theme.name === byId("cacheSelect").value);
+  }
+
+  function renderSelection() {
+    const theme = selected();
+    const status = theme?.status === "changed" ? "主题商店已更新" : theme?.status === "patched" ? "已修补" : "未修改";
+    byId("cacheSelectedInfo").textContent = theme
+      ? `主题：${theme.label || "未知主题"} · ${sizeText(theme.size)} · ${status} · ${new Date(theme.mtime * 1000).toLocaleString()}`
+      : "请选择一个主题商店图标主题";
+  }
+
+  async function scan(showError = false) {
+    const startedAt = Date.now();
+    byId("cacheReload").disabled = true;
+    try {
+      themes = (await exec("scan_cache")).split(/\r?\n/).filter(Boolean).map((line) => {
+        const [name, size, mtime, status, label] = line.split("\t");
+        return { name, size: Number(size), mtime: Number(mtime), status: status || "new", label: decodeLabel(label) };
       });
+      byId("cacheSelect").replaceChildren(...themes.map((theme, index) => {
+        const option = document.createElement("option");
+        option.value = theme.name;
+        option.textContent = `${index === 0 ? "最近 · " : ""}${theme.label || "未知主题"} · ${theme.status === "patched" ? "已修补" : theme.status === "changed" ? "已更新" : "未修改"}`;
+        return option;
+      }));
+      const previous = localStorage.getItem("hip-last-theme") || localStorage.getItem("hip-last-component");
+      if (themes.some((theme) => theme.name === previous)) byId("cacheSelect").value = previous;
+      byId("cacheInfo").textContent = themes.length ? `发现 ${themes.length} 个主题` : "没有发现图标主题，请先从主题商店下载";
+      renderSelection();
+      log(`主题扫描完成 · ${themes.length} 个 · ${Date.now() - startedAt}ms`);
+    } catch (error) {
+      themes = [];
+      byId("cacheInfo").textContent = error.message;
+      if (showError) notify(`主题扫描失败：${error.message}`);
+    } finally {
+      byId("cacheReload").disabled = false;
     }
-    function d() {
-      this.listeners = {};
-    }
-    d.prototype.on = function(u, e) {
-      this.listeners[u] || (this.listeners[u] = []), this.listeners[u].push(e);
-    }, d.prototype.emit = function(u, ...e) {
-      this.listeners[u] && this.listeners[u].forEach((a) => a(...e));
-    };
-    function A() {
-      this.listeners = {}, this.stdin = new d(), this.stdout = new d(), this.stderr = new d();
-    }
-    A.prototype.on = function(u, e) {
-      this.listeners[u] || (this.listeners[u] = []), this.listeners[u].push(e);
-    }, A.prototype.emit = function(u, ...e) {
-      this.listeners[u] && this.listeners[u].forEach((a) => a(...e));
-    };
-    var w = "/data/adb/modules/hyper_icon_patcher/scripts/backend.sh", t = (u) => document.getElementById(u), i = [], p = (u) => `'${String(u).replaceAll("'", "'\\''")}'`;
-    async function l(u, ...e) {
-      let a = await f(["sh", w, u, ...e.map(p)].join(" ")), n = String(a.stdout || "").trim();
-      if (a.errno !== 0 || n.startsWith("ERROR:")) throw new Error(n || a.stderr || `\u547D\u4EE4\u5931\u8D25\uFF1A${a.errno}`);
-      return n;
-    }
-    function o(u) {
-      let e = t("log");
-      e.textContent = `[${(/* @__PURE__ */ new Date()).toLocaleTimeString()}] ${u}
-${e.textContent}`.slice(0, 6e3);
-    }
-    function E(u) {
-      o(u);
-      if (window.HIPNotify) window.HIPNotify(u);
-      else window.alert(u);
-    }
-    function B(u) {
-      return u >= 1048576 ? `${(u / 1048576).toFixed(1)} MB` : `${Math.round(u / 1024)} KB`;
-    }
-    function g(u) {
-      if (!u) return "";
-      try {
-        return new TextDecoder().decode(Uint8Array.from(atob(u), (e) => e.charCodeAt(0)));
-      } catch {
-        return "";
+  }
+
+  byId("cacheSelect").addEventListener("change", renderSelection);
+  byId("cacheReload").addEventListener("click", () => scan(true));
+  byId("cacheLoad").addEventListener("click", async () => {
+    const theme = selected();
+    if (!theme) return notify("请先选择一个主题");
+    const button = byId("cacheLoad");
+    button.disabled = true;
+    try {
+      const size = Number(await exec("prepare_cache", theme.name));
+      if (!Number.isFinite(size) || size <= 0) throw new Error("主题为空或无法读取");
+      if (size > 112e6) throw new Error("主题过大，超过 WebUI 安全读取限制");
+      const chunks = [];
+      const chunkSize = 240000;
+      for (let offset = 0; offset < size; offset += chunkSize) {
+        chunks.push(await exec("read_chunk", String(offset), String(Math.min(chunkSize, size - offset))));
+        button.textContent = `加载 ${Math.min(100, Math.round((offset + chunkSize) / size * 100))}%`;
       }
+      window.HIP.loadCacheSource(chunks.join("").replace(/\s/g, ""), theme.label || theme.name, theme.name);
+      localStorage.setItem("hip-last-theme", theme.name);
+      byId("selectedTheme").innerHTML = `<strong>${theme.label || "未知主题"}</strong><br>状态：已加载为待修补主题`;
+      log(`已加载待修补主题：${theme.label || theme.name}`);
+    } catch (error) {
+      notify(`加载主题失败：${error.message}`);
+    } finally {
+      button.disabled = false;
+      button.textContent = "加载待修补主题";
     }
-    function h() {
-      let u = i.find((a) => a.name === t("cacheSelect").value), e = u?.status === "changed" ? "\u5DF2\u88AB\u5546\u5E97\u66F4\u65B0\u8986\u76D6" : u?.status === "patched" ? "\u81EA\u5B9A\u4E49\u7248\u672C\u5DF2\u5199\u5165" : "\u672A\u4FEE\u6539";
-      t("cacheSelectedInfo").textContent = u ? `\u4E3B\u9898\uFF1A${u.label || "\u672A\u77E5\u4E3B\u9898"} \xB7 ${B(u.size)} \xB7 ${e} \xB7 ${new Date(u.mtime * 1e3).toLocaleString()}` : "\u8BF7\u9009\u62E9\u4E00\u4E2A\u4E3B\u9898\u5546\u5E97\u56FE\u6807\u7EC4\u4EF6";
+  });
+
+  byId("cachePatch").addEventListener("click", async () => {
+    const theme = selected();
+    if (!theme) return notify("请先选择并加载待修补主题");
+    const flow = window.HIP?.flowStatus?.();
+    if (!flow?.sourceLoaded || flow.sourceName !== theme.name) return notify("请先加载当前选中的待修补主题");
+    const identity = window.HIP?.themeIdentity?.();
+    const prefix = window.HIP?.drawablePrefix?.();
+    if (!identity || !prefix) return notify("主题信息尚未就绪，请重新加载主题");
+    const button = byId("cachePatch");
+    button.disabled = true;
+    button.textContent = "正在修补…";
+    try {
+      const build = (await exec("fast_merge", theme.name, prefix, identity)).split(":");
+      const patch = await exec("patch_cache", theme.name);
+      log(`修补完成：处理 ${Number(build[1] || 0)} 个自定义图标 · 写入 ${Number(build[2] || 0)} 个主题条目 · 备份：${patch.replace(/^OK:/, "")}`);
+      if (window.HIPToast) window.HIPToast("主题修补完成");
+      await scan();
+    } catch (error) {
+      notify(`修补主题失败：${error.message}`);
+    } finally {
+      button.disabled = false;
+      button.textContent = "修补主题";
     }
-    async function C(notifyOnFailure = false) {
-      const startedAt = Date.now();
-      t("cacheReload").disabled = true;
-      try {
-        i = (await l("scan_cache")).split(/\r?\n/).filter(Boolean).map((e) => {
-          let [a, n, r, s, c] = e.split("	");
-          return { name: a, size: Number(n), mtime: Number(r), status: s || "new", label: g(c) };
-        }), t("cacheSelect").replaceChildren(...i.map((e, a) => {
-          let n = document.createElement("option"), r = e.status === "changed" ? "\u5DF2\u66F4\u65B0" : e.status === "patched" ? "\u5DF2\u81EA\u5B9A\u4E49" : "\u672A\u4FEE\u6539";
-          return n.value = e.name, n.textContent = `${a === 0 ? "\u6700\u8FD1 \xB7 " : ""}${e.label || "\u672A\u77E5\u4E3B\u9898"} \xB7 ${r} \xB7 ${B(e.size)}`, n;
-        }));
-        let u = localStorage.getItem("hip-last-component");
-        u && i.some((e) => e.name === u) && (t("cacheSelect").value = u), t("cacheInfo").textContent = i.length ? `\u53D1\u73B0 ${i.length} \u4E2A\u7EC4\u4EF6\uFF0C\u5DF2\u6309\u66F4\u65B0\u65F6\u95F4\u6392\u5E8F` : "\u6CA1\u6709\u53D1\u73B0\u7EC4\u4EF6\uFF0C\u8BF7\u5148\u4ECE\u4E3B\u9898\u5546\u5E97\u4E0B\u8F7D\u4E00\u4E2A\u56FE\u6807\u4E3B\u9898", h(), o(`组件扫描完成 · ${i.length} 个 · ${Date.now() - startedAt}ms`);
-      } catch (u) {
-        i = [], t("cacheInfo").textContent = u.message, o(`\u7F13\u5B58\u626B\u63CF\u5931\u8D25\uFF1A${u.message}`);
-        if (notifyOnFailure) {
-          if (window.HIPNotify) window.HIPNotify(`缓存扫描失败：${u.message}`);
-          else window.alert(`缓存扫描失败：${u.message}`);
-        }
-      } finally {
-        t("cacheReload").disabled = false;
-      }
-    }
-    t("cacheSelect").addEventListener("change", h), t("cacheReload").addEventListener("click", () => C(true)), t("cacheLoad").addEventListener("click", async () => {
-      let u = t("cacheSelect").value;
-      if (!u) return E("\u8BF7\u5148\u9009\u62E9\u4E00\u4E2A\u5546\u5E97\u56FE\u6807\u7EC4\u4EF6");
-      {
-        t("cacheLoad").disabled = true, t("cacheLoad").textContent = "\u52A0\u8F7D\u4E2D\u2026";
-        try {
-          let e = Number(await l("prepare_cache", u));
-          if (!Number.isFinite(e) || e <= 0) throw new Error("\u7EC4\u4EF6\u4E3A\u7A7A\u6216\u65E0\u6CD5\u8BFB\u53D6");
-          if (e > 112e6) throw new Error("组件过大，超过 WebUI 安全读取限制");
-          let a = 24e4, n = [];
-          for (let F = 0; F < e; F += a) n.push(await l("read_chunk", String(F), String(Math.min(a, e - F)))), t("cacheLoad").textContent = `\u52A0\u8F7D ${Math.min(100, Math.round((F + a) / e * 100))}%`;
-          if (!window.HIP?.loadCacheSource) throw new Error("\u4E3B\u9875\u7EC4\u4EF6\u5C1A\u672A\u5C31\u7EEA");
-          let r = i.find((F) => F.name === u);
-          window.HIP.loadCacheSource(n.join("").replace(/\s/g, ""), r?.label || "\u672A\u77E5\u4E3B\u9898", u), localStorage.setItem("hip-last-component", u), o("\u5546\u5E97\u7EC4\u4EF6\u5DF2\u4F5C\u4E3A\u56FE\u6807\u57FA\u7840\u52A0\u8F7D");
-          let s = t("selectedTheme"), c = document.createElement("strong");
-          c.textContent = r?.label || "\u672A\u77E5\u4E3B\u9898", s.replaceChildren(c, document.createElement("br"), "\u72B6\u6001\uFF1A\u5DF2\u52A0\u8F7D\u4E3A\u56FE\u6807\u57FA\u7840");
-        } catch (e) {
-          E(`\u52A0\u8F7D\u5546\u5E97\u7EC4\u4EF6\u5931\u8D25\uFF1A${e.message}`);
-        } finally {
-          t("cacheLoad").disabled = false, t("cacheLoad").textContent = "\u52A0\u8F7D\u9009\u4E2D\u7EC4\u4EF6\u4F5C\u4E3A\u57FA\u7840", h();
-        }
-      }
-    }), t("cachePatch").addEventListener("click", async () => {
-      let u = t("cacheSelect").value;
-      if (!u) return E("\u8BF7\u5148\u9009\u62E9\u8981\u5199\u5165\u7684\u5546\u5E97\u56FE\u6807\u7EC4\u4EF6");
-      if (!window.HIP?.validatePatch) return E("\u4E3B\u9875\u7EC4\u4EF6\u5C1A\u672A\u5C31\u7EEA\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5");
-      let e = window.HIP?.validatePatch?.(u);
-      if (e) return E(e);
-      {
-        t("cachePatch").disabled = true;
-        try {
-          let a = await l("patch_cache", u);
-          o(`\u5546\u5E97\u7EC4\u4EF6\u5199\u5165\u6210\u529F\uFF0C\u5907\u4EFD\uFF1A${a.replace(/^OK:/, "")}`), o("\u4E0B\u4E00\u6B65\uFF1A\u6253\u5F00\u4E3B\u9898\u5546\u5E97\uFF0C\u5728\u201C\u6211\u7684\uFF0F\u56FE\u6807\u201D\u4E2D\u5E94\u7528\u521A\u624D\u9009\u62E9\u7684\u5360\u4F4D\u4E3B\u9898"), await C();
-        } catch (a) {
-          E(`\u5546\u5E97\u7EC4\u4EF6\u5199\u5165\u5931\u8D25\uFF1A${a.message}`);
-        } finally {
-          t("cachePatch").disabled = false, h();
-        }
-      }
-    }), t("cacheMerge").addEventListener("click", async () => {
-      let u = t("cacheSelect").value;
-      if (!u) return E("\u8BF7\u5148\u9009\u62E9\u4E00\u4E2A\u5DF2\u66F4\u65B0\u7684\u5546\u5E97\u56FE\u6807\u7EC4\u4EF6");
-      if (i.find((e) => e.name === u)?.status !== "changed") return E("\u53EA\u6709\u68C0\u6D4B\u5230\u4E3B\u9898\u5546\u5E97\u66F4\u65B0\u540E\uFF0C\u624D\u9700\u8981\u6267\u884C\u66F4\u65B0\u5408\u5E76");
-      {
-        t("cacheMerge").disabled = true, t("cacheMerge").textContent = "\u6B63\u5728\u5408\u5E76\u2026";
-        try {
-          let e = (await l("fast_merge", u)).split(":"), a = Number(e[1] || 0), n = Number(e[2] || 0), r = await l("patch_cache", u);
-          o(`更新合并已写入：主题新版优先，补回 ${n} 个，跳过冲突 ${Math.max(0, a - n)} 个，已使用手机端快速合并，备份：${r.replace(/^OK:/, "")}`), await C();
-        } catch (e) {
-          E(`\u66F4\u65B0\u5408\u5E76\u5931\u8D25\uFF1A${e.message}`);
-        } finally {
-          t("cacheMerge").disabled = false, t("cacheMerge").textContent = "\u5408\u5E76\u4E3B\u9898\u66F4\u65B0\u4E0E\u81EA\u5B9A\u4E49\u56FE\u6807", h();
-        }
-      }
-    }), t("cacheRestore").addEventListener("click", async () => {
-      let u = t("cacheSelect").value;
-      if (!u) return E("\u8BF7\u5148\u9009\u62E9\u8981\u6062\u590D\u7684\u5546\u5E97\u56FE\u6807\u7EC4\u4EF6");
-      {
-        t("cacheRestore").disabled = true;
-        try {
-          let e = await l("restore_cache", u);
-          o(`\u5DF2\u6062\u590D\u5546\u5E97\u7EC4\u4EF6\uFF1A${e.replace(/^OK:/, "")}`), await C();
-        } catch (e) {
-          E(`\u6062\u590D\u5931\u8D25\uFF1A${e.message}`);
-        } finally {
-          t("cacheRestore").disabled = false, h();
-        }
-      }
-    }), t("cacheOpen").addEventListener("click", async () => {
-      try {
-        await l("open_theme_manager"), o("\u5DF2\u8BF7\u6C42\u6253\u5F00\u4E3B\u9898\u5546\u5E97");
-      } catch (u) {
-        E(`\u65E0\u6CD5\u6253\u5F00\u4E3B\u9898\u5546\u5E97\uFF1A${u.message}`);
-      }
-    }), setTimeout(C, 800);
-  })();
+  });
+
+  byId("cacheRestore").addEventListener("click", async () => {
+    const theme = selected();
+    if (!theme) return notify("请先选择要恢复的主题");
+    if (!confirm(`恢复“${theme.label || theme.name}”最近一次备份？`)) return;
+    try {
+      const result = await exec("restore_cache", theme.name);
+      log(`已恢复主题：${result.replace(/^OK:/, "")}`);
+      await scan();
+    } catch (error) { notify(`恢复失败：${error.message}`); }
+  });
+
+  byId("cacheOpen").addEventListener("click", async () => {
+    try { await exec("open_theme_manager"); log("已请求打开主题商店"); }
+    catch (error) { notify(`无法打开主题商店：${error.message}`); }
+  });
+
+  setTimeout(scan, 800);
 })();

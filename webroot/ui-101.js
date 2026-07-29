@@ -101,20 +101,36 @@
     }
   });
 
+  const openDialog = (id) => {
+    const dialog = byId(id);
+    if (dialog && !dialog.open) dialog.showModal();
+  };
+  byId("openAppPicker")?.addEventListener("click", () => openDialog("appPicker"));
+  byId("openRecipeManager")?.addEventListener("click", () => {
+    openDialog("recipeManager");
+    window.dispatchEvent(new Event("hip-recipes-changed"));
+  });
+  document.querySelectorAll(".close-sheet").forEach((button) =>
+    button.addEventListener("click", () => byId(button.dataset.close)?.close()));
+  document.querySelectorAll("dialog").forEach((dialog) =>
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) dialog.close();
+    }));
+
   const launcherButton = byId("refreshLauncher");
   launcherButton.addEventListener("click", async () => {
     launcherButton.disabled = true;
     launcherButton.classList.add("button-loading");
-    launcherButton.replaceChildren(makeSpinner(), "正在刷新系统桌面…");
+    launcherButton.replaceChildren(makeSpinner(), "正在重启系统桌面…");
     const log = byId("log");
     try {
       await execBackend("refresh");
-      appendLog("系统桌面已刷新，图标会重新载入");
+      appendLog("系统桌面已重启，图标会重新载入");
     } catch (error) {
       notifyError(`桌面刷新失败：${error.message}`, true);
     } finally {
       launcherButton.classList.remove("button-loading");
-      launcherButton.textContent = "刷新系统桌面图标";
+      launcherButton.textContent = "重启系统桌面";
       launcherButton.disabled = false;
     }
   });

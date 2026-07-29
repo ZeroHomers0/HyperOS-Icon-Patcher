@@ -55,7 +55,7 @@
         return [];
       }
     }
-    var q = "/data/adb/modules/hyper_icon_patcher/scripts/backend.sh", c = (e) => document.getElementById(e), i = { apps: [], selected: /* @__PURE__ */ new Map(), iconsZip: null, sourceName: "", builtIcons: null, builtOnDevice: false, builtSourceName: "", selectionVersion: 0, builtSelectionVersion: -1 }, K = (e) => `'${String(e).replaceAll("'", "'\\''")}'`;
+    var q = "/data/adb/modules/hyper_icon_patcher/scripts/backend.sh", c = (e) => document.getElementById(e), i = { apps: [], selected: /* @__PURE__ */ new Map(), iconsZip: null, sourceName: "", sourceLabel: "", builtIcons: null, builtOnDevice: false, builtSourceName: "", selectionVersion: 0, builtSelectionVersion: -1 }, K = (e) => `'${String(e).replaceAll("'", "'\\''")}'`;
     async function f(e, ...t) {
       let u = await z(["sh", q, e, ...t.map(K)].join(" ")), n = String(u.stdout || "").trim();
       if (u.errno !== 0 || n.startsWith("ERROR:")) throw new Error(n || u.stderr || `\u547D\u4EE4\u5931\u8D25\uFF1A${u.errno}`);
@@ -223,7 +223,7 @@ ${t.textContent}`.slice(0, 6e3);
       return "";
     }
     function V(e, t, u, n = "", r = "icons") {
-      let l = y(n, ["title", "name"]) || t || "\u5F53\u524D\u6D3B\u52A8\u4E3B\u9898", a = y(n, ["author", "designer"]), o = y(n, ["version"]), s = [`<strong>${g(l)}</strong>`, `\u6765\u6E90\uFF1A${g(e)}`, `\u56FE\u6807\u7EC4\u4EF6\uFF1A${g(r)} \xB7 ${(u / 1048576).toFixed(1)} MB`];
+      let l = y(n, ["title", "name"]) || t || "\u5F53\u524D\u6D3B\u52A8\u4E3B\u9898", a = y(n, ["author", "designer"]), o = y(n, ["version"]), s = [`<strong>${g(l)}</strong>`, `\u6765\u6E90\uFF1A${g(e)}`, `\u56FE\u6807\u4E3B\u9898\uFF1A${g(r)} \xB7 ${(u / 1048576).toFixed(1)} MB`];
       a && s.push(`\u4F5C\u8005\uFF1A${g(a)}`), o && s.push(`\u7248\u672C\uFF1A${g(o)}`), c("selectedTheme").innerHTML = s.join("<br>");
     }
     function g(e) {
@@ -344,7 +344,7 @@ ${t.textContent}`.slice(0, 6e3);
       }));
     }
     async function ue() {
-      if (!i.iconsZip) throw new Error("\u8BF7\u5148\u52A0\u8F7D\u4E00\u4E2A\u4E3B\u9898\u5546\u5E97\u56FE\u6807\u7EC4\u4EF6");
+      if (!i.iconsZip) throw new Error("\u8BF7\u5148\u52A0\u8F7D\u4E00\u4E2A\u4E3B\u9898\u5546\u5E97\u56FE\u6807\u4E3B\u9898");
       if (!i.selected.size) throw new Error("\u8BF7\u81F3\u5C11\u9009\u62E9\u4E00\u4E2A\u5E94\u7528\u56FE\u6807");
       let e = i.iconsZip, t = L(e), u = [], n = E(e).entries;
       await f("recipe_begin");
@@ -360,14 +360,14 @@ ${t.textContent}`.slice(0, 6e3);
         for (let s of o) u.push({ name: s, data: a });
         await Y(r, a), h(`已加入：${l.label} · ${Math.round(a.length / 1024)}KB · 写入 ${o.length} 个实际条目`);
       }
-      await f("recipe_finish"), window.dispatchEvent(new Event("hip-recipes-changed"));
+      await f("recipe_finish", i.sourceLabel || i.sourceName), window.dispatchEvent(new Event("hip-recipes-changed"));
       let r = await f("fast_build", i.sourceName, t);
       if (r.startsWith("OK")) {
-        i.builtIcons = null, i.builtOnDevice = true, i.builtSourceName = i.sourceName, i.builtSelectionVersion = i.selectionVersion, h(`生成完成：${i.selected.size} 个图标 · 已使用手机端快速生成`);
+        i.builtIcons = null, i.builtOnDevice = true, i.builtSourceName = i.sourceName, i.builtSelectionVersion = i.selectionVersion, h(`已添加为自定义图标：${i.selected.size} 个`);
         return;
       }
       h(`${r.replace(/^FALLBACK:/, "手机端快速生成不可用：")}，正在回退兼容写入链路`);
-      e = k(e, u), E(e), i.builtIcons = e, i.builtOnDevice = false, i.builtSourceName = i.sourceName, i.builtSelectionVersion = i.selectionVersion, await M("active", e), h(`生成完成：${i.selected.size} 个图标 · 已回退上午版本兼容写入链路`);
+      e = k(e, u), E(e), i.builtIcons = e, i.builtOnDevice = false, i.builtSourceName = i.sourceName, i.builtSelectionVersion = i.selectionVersion, await M("active", e), h(`已添加为自定义图标：${i.selected.size} 个 · 已使用兼容处理链路`);
     }
     function R() {
       return new Promise((e, t) => {
@@ -390,16 +390,18 @@ ${t.textContent}`.slice(0, 6e3);
         });
         if (e.close(), !t?.bytes) return false;
         let u = new Uint8Array(t.bytes);
-        return E(u), i.iconsZip = u, i.sourceName = t.name || "", i.builtIcons = null, i.builtOnDevice = false, V("\u4E0A\u6B21\u52A0\u8F7D\u7EC4\u4EF6", t.label, u.length, "", t.label), h(`\u5DF2\u81EA\u52A8\u6062\u590D\u4E0A\u6B21\u7EC4\u4EF6\uFF1A${t.label}`), true;
+        return E(u), i.iconsZip = u, i.sourceName = t.name || "", i.sourceLabel = t.label || t.name || "", i.builtIcons = null, i.builtOnDevice = false, V("\u4E0A\u6B21\u52A0\u8F7D\u4E3B\u9898", t.label, u.length, "", t.label), h(`\u5DF2\u81EA\u52A8\u6062\u590D\u4E0A\u6B21\u4E3B\u9898\uFF1A${t.label}`), window.dispatchEvent(new CustomEvent("hip-theme-loaded", { detail: { name: i.sourceName, label: i.sourceLabel } })), true;
       } catch (e) {
-        return h(`\u4E0A\u6B21\u7EC4\u4EF6\u6062\u590D\u5931\u8D25\uFF1A${e.message}`), false;
+        return h(`\u4E0A\u6B21\u4E3B\u9898\u6062\u590D\u5931\u8D25\uFF1A${e.message}`), false;
       }
     }
     window.HIP = { loadCacheSource(e, t, u = "") {
       let n = I(e);
-      E(n), i.iconsZip = n, i.sourceName = u, i.builtIcons = null, i.builtOnDevice = false, i.builtSourceName = "", i.builtSelectionVersion = -1, V("\u4E3B\u9898\u5546\u5E97\u7EC4\u4EF6", t, n.length, "", t), h(`\u5DF2\u52A0\u8F7D\u5546\u5E97\u7EC4\u4EF6\uFF1A${t}`), ne(n, t, u).catch((r) => h(`\u7EC4\u4EF6\u6301\u4E45\u5316\u5931\u8D25\uFF1A${r.message}`));
+      E(n), i.iconsZip = n, i.sourceName = u, i.sourceLabel = t || u, i.builtIcons = null, i.builtOnDevice = false, i.builtSourceName = "", i.builtSelectionVersion = -1, V("\u4E3B\u9898\u5546\u5E97\u4E3B\u9898", t, n.length, "", t), h(`\u5DF2\u52A0\u8F7D\u5546\u5E97\u4E3B\u9898\uFF1A${t}`), ne(n, t, u).catch((r) => h(`\u4E3B\u9898\u6301\u4E45\u5316\u5931\u8D25\uFF1A${r.message}`)), window.dispatchEvent(new CustomEvent("hip-theme-loaded", { detail: { name: u, label: i.sourceLabel } }));
     }, drawablePrefix() {
       return i.iconsZip ? L(i.iconsZip) : "";
+    }, themeIdentity() {
+      return i.sourceLabel || i.sourceName || "";
     }, recipeMode(e) {
       if (!i.iconsZip) return "unknown";
       return E(i.iconsZip).entries.some((t) => t.name.match(/\/res\/drawable[^/]*\/|^res\/drawable[^/]*\//) && t.name.endsWith(`/${e}.png`)) ? "replace" : "add";
@@ -407,24 +409,10 @@ ${t.textContent}`.slice(0, 6e3);
       let e = !!i.builtIcons || i.builtOnDevice;
       return { sourceLoaded: !!i.iconsZip, sourceName: i.sourceName, iconCount: i.selected.size, resultReady: e, resultCurrent: e && i.builtSelectionVersion === i.selectionVersion };
     }, validatePatch(e) {
-      if (!i.iconsZip) return "\u8BF7\u5148\u52A0\u8F7D\u9009\u4E2D\u7684\u5546\u5E97\u56FE\u6807\u7EC4\u4EF6";
-      if (!i.builtIcons && !i.builtOnDevice) return "\u8BF7\u5148\u70B9\u51FB\u201C\u751F\u6210\u4FEE\u6539\u7ED3\u679C\u201D";
-      if (i.builtSelectionVersion !== i.selectionVersion) return "\u56FE\u6807\u9009\u62E9\u5DF2\u53D8\u66F4\uFF0C\u8BF7\u91CD\u65B0\u751F\u6210\u4FEE\u6539\u7ED3\u679C";
-      return !e || i.builtSourceName !== e ? "\u5F53\u524D\u9009\u4E2D\u7EC4\u4EF6\u4E0E\u751F\u6210\u7ED3\u679C\u4E0D\u5339\u914D\uFF0C\u8BF7\u91CD\u65B0\u52A0\u8F7D\u5E76\u751F\u6210" : "";
-    }, async mergeSavedCustom() {
-      if (!i.iconsZip) throw new Error("\u8BF7\u5148\u52A0\u8F7D\u66F4\u65B0\u540E\u7684\u5546\u5E97\u7EC4\u4EF6");
-      let e = (await f("recipe_list")).split(/\r?\n/).filter(Boolean);
-      if (!e.length) throw new Error("\u6CA1\u6709\u5DF2\u4FDD\u5B58\u7684\u81EA\u5B9A\u4E49\u56FE\u6807\u914D\u7F6E");
-      let t = i.iconsZip, u = L(t), n = new Set(E(t).entries.map((o) => o.name)), r = 0, l = 0, a = [];
-      for (let o of e) {
-        let s = `${u}${o}.png`;
-        if (n.has(s)) {
-          l++;
-          continue;
-        }
-        a.push({ name: s, data: await ee(o) }), r++;
-      }
-      return t = k(t, a), E(t), i.builtIcons = t, i.builtOnDevice = false, i.builtSourceName = i.sourceName, i.builtSelectionVersion = i.selectionVersion, await M("active", t), h(`\u5408\u5E76\u5B8C\u6210\uFF1A\u8865\u56DE ${r} \u4E2A\u81EA\u5B9A\u4E49\u56FE\u6807\uFF0C${l} \u4E2A\u51B2\u7A81\u5DF2\u4FDD\u7559\u4E3B\u9898\u65B0\u7248`), { merged: r, conflicts: l };
+      if (!i.iconsZip) return "\u8BF7\u5148\u52A0\u8F7D\u9009\u4E2D\u7684\u5546\u5E97\u56FE\u6807\u4E3B\u9898";
+      if (!i.builtIcons && !i.builtOnDevice) return "\u8BF7\u5148\u6DFB\u52A0\u4E3A\u81EA\u5B9A\u4E49\u56FE\u6807";
+      if (i.builtSelectionVersion !== i.selectionVersion) return "\u56FE\u6807\u9009\u62E9\u5DF2\u53D8\u66F4\uFF0C\u8BF7\u91CD\u65B0\u6DFB\u52A0\u4E3A\u81EA\u5B9A\u4E49\u56FE\u6807";
+      return !e || i.builtSourceName !== e ? "\u5F53\u524D\u9009\u4E2D\u4E3B\u9898\u4E0E\u5904\u7406\u7ED3\u679C\u4E0D\u5339\u914D\uFF0C\u8BF7\u91CD\u65B0\u52A0\u8F7D" : "";
     } }, c("iconInput").onchange = async (e) => {
       let t = e.target.files?.[0];
       if (!t || !b) return;
@@ -446,7 +434,7 @@ ${t.textContent}`.slice(0, 6e3);
       try {
         await ue();
       } catch (e) {
-        G(`\u751F\u6210\u5931\u8D25\uFF1A${e.message}`);
+        G(`\u6DFB\u52A0\u5931\u8D25\uFF1A${e.message}`);
       } finally {
         A(c("buildBtn"), false);
       }

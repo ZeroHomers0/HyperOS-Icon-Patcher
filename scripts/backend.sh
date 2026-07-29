@@ -11,13 +11,22 @@ BASE_CACHE="$DATA/base-cache"
 CUSTOM_ICONS="$DATA/custom-icons"
 CUSTOM_STAGE="$DATA/custom-icons-stage"
 CUSTOM_TRASH="$DATA/custom-icons-trash"
+THEME_ICONS="$DATA/theme-icons"
 BB=/data/adb/ksu/bin/busybox
 
 [ -x "$BB" ] || BB=busybox
 
-mkdir -p "$TRANSFER" "$CACHE_BACKUPS" "$PATCHED_CACHE" "$CACHE_STATE" "$BASE_CACHE" "$CUSTOM_ICONS" "$CUSTOM_STAGE" "$CUSTOM_TRASH" || {
+mkdir -p "$TRANSFER" "$CACHE_BACKUPS" "$PATCHED_CACHE" "$CACHE_STATE" "$BASE_CACHE" "$CUSTOM_ICONS" "$CUSTOM_STAGE" "$CUSTOM_TRASH" "$THEME_ICONS" || {
   echo "ERROR:无法初始化模块数据目录"
   exit 3
+}
+
+theme_icon_dir() {
+  THEME_ID=$1
+  [ -n "$THEME_ID" ] || return 1
+  THEME_KEY=$(printf '%s' "$THEME_ID" | "$BB" sha256sum | "$BB" awk '{print $1}')
+  [ -n "$THEME_KEY" ] || return 1
+  printf '%s/%s' "$THEME_ICONS" "$THEME_KEY"
 }
 
 find_cache_root() {
@@ -247,6 +256,8 @@ fast_build() {
 
 fast_merge() {
   NAME=$1
+  PREFIX=$2
+  THEME_ID=$3
   FILE=$(cache_path "$NAME") || {
     echo "ERROR:缓存文件名无效"
     exit 2
@@ -255,7 +266,11 @@ fast_merge() {
     echo "ERROR:缓存文件不存在"
     exit 2
   }
-  COUNT=$(find "$CUSTOM_ICONS" -maxdepth 1 -type f -name '*.png' | "$BB" wc -l | "$BB" tr -d ' ')
+  ICON_DIR=$(theme_icon_dir "$THEME_ID") || {
+    echo "ERROR:请重新加载待修补主题"
+    exit 2
+  }
+  COUNT=$(find "$ICON_DIR" -maxdepth 1 -type f -name '*.png' 2>/dev/null | "$BB" wc -l | "$BB" tr -d ' ')
   [ "$COUNT" -gt 0 ] || {
     echo "ERROR:没有已保存的自定义图标配置"
     exit 2
@@ -275,8 +290,8 @@ fast_merge() {
   OUTPUT=$("$HELPER" \
     -source "$FILE" \
     -output "$NEXT" \
-    -icons "$CUSTOM_ICONS" \
-    -missing-only 2>&1)
+    -icons "$ICON_DIR" \
+    -prefix "$PREFIX" 2>&1)
   STATUS=$?
   if [ "$STATUS" -ne 0 ]; then
     rm -f "$NEXT"
@@ -526,22 +541,30 @@ recipe_upload_commit() {
 }
 
 recipe_finish() {
-  NEXT="$DATA/custom-icons-next"
-  PREVIOUS="$DATA/custom-icons-previous"
-  if [ ! -d "$CUSTOM_ICONS" ] && [ -d "$PREVIOUS" ]; then
-    mv "$PREVIOUS" "$CUSTOM_ICONS" || {
+  ICON_DIR=$(theme_icon_dir "$1") || {
+    echo "ERROR:请先加载待修补主题"
+    exit 2
+  }
+  NEXT="$ICON_DIR-next"
+  PREVIOUS="$ICON_DIR-previous"
+  if [ ! -d "$ICON_DIR" ] && [ -d "$PREVIOUS" ]; then
+    mv "$PREVIOUS" "$ICON_DIR" || {
       echo "ERROR:检测到上次保存中断，但原配置恢复失败"
       exit 3
     }
   fi
+  mkdir -p "$ICON_DIR" || {
+    echo "ERROR:无法创建当前主题的图标配置目录"
+    exit 3
+  }
   rm -rf "$NEXT"
-  [ -d "$CUSTOM_ICONS" ] && rm -rf "$PREVIOUS"
+  [ -d "$ICON_DIR" ] && rm -rf "$PREVIOUS"
   mkdir -p "$NEXT" || {
     echo "ERROR:无法创建图标配置临时目录"
     exit 3
   }
-  if [ -d "$CUSTOM_ICONS" ]; then
-    find "$CUSTOM_ICONS" -maxdepth 1 -type f -name '*.png' -exec cp -p '{}' "$NEXT/" ';' || {
+  if [ -d "$ICON_DIR" ]; then
+    find "$ICON_DIR" -maxdepth 1 -type f -name '*.png' -exec cp -p '{}' "$NEXT/" ';' || {
       rm -rf "$NEXT"
       echo "ERROR:无法保留已有图标配置，原配置未变更"
       exit 3
@@ -558,13 +581,13 @@ recipe_finish() {
     echo "ERROR:没有可保存的图标配置"
     exit 2
   }
-  mv "$CUSTOM_ICONS" "$PREVIOUS" || {
+  mv "$ICON_DIR" "$PREVIOUS" || {
     rm -rf "$NEXT"
     echo "ERROR:无法切换图标配置"
     exit 3
   }
-  mv "$NEXT" "$CUSTOM_ICONS" || {
-    mv "$PREVIOUS" "$CUSTOM_ICONS"
+  mv "$NEXT" "$ICON_DIR" || {
+    mv "$PREVIOUS" "$ICON_DIR"
     echo "ERROR:保存图标配置失败，已恢复原配置"
     exit 3
   }
@@ -573,13 +596,15 @@ recipe_finish() {
 }
 
 recipe_list() {
-  find "$CUSTOM_ICONS" -maxdepth 1 -type f -name '*.png' 2>/dev/null |
+  ICON_DIR=$(theme_icon_dir "$1") || exit 0
+  find "$ICON_DIR" -maxdepth 1 -type f -name '*.png' 2>/dev/null |
     "$BB" sed 's#.*/##; s/\.png$//' |
     "$BB" sort
 }
 
 recipe_list_detail() {
-  find "$CUSTOM_ICONS" -maxdepth 1 -type f -name '*.png' 2>/dev/null |
+  ICON_DIR=$(theme_icon_dir "$1") || exit 0
+  find "$ICON_DIR" -maxdepth 1 -type f -name '*.png' 2>/dev/null |
     while IFS= read -r FILE; do
       BASE=${FILE##*/}
       PACKAGE=${BASE%.png}
@@ -595,7 +620,11 @@ recipe_delete() {
     echo "ERROR:应用包名无效"
     exit 2
   }
-  FILE="$CUSTOM_ICONS/$1.png"
+  ICON_DIR=$(theme_icon_dir "$2") || {
+    echo "ERROR:请先加载待修补主题"
+    exit 2
+  }
+  FILE="$ICON_DIR/$1.png"
   [ -f "$FILE" ] || {
     echo "ERROR:未找到这个自定义图标"
     exit 2
@@ -714,7 +743,11 @@ prepare_recipe() {
     echo "ERROR:应用包名无效"
     exit 2
   }
-  FILE="$CUSTOM_ICONS/$1.png"
+  ICON_DIR=$(theme_icon_dir "$2") || {
+    echo "ERROR:请先加载待修补主题"
+    exit 2
+  }
+  FILE="$ICON_DIR/$1.png"
   [ -f "$FILE" ] || {
     echo "ERROR:未找到保存的自定义图标"
     exit 2
@@ -784,7 +817,7 @@ case "$1" in
   stream_cache) stream_cache "$2" ;;
   prepare_cache) prepare_cache "$2" ;;
   fast_build) fast_build "$2" "$3" ;;
-  fast_merge) fast_merge "$2" ;;
+  fast_merge) fast_merge "$2" "$3" "$4" ;;
   patch_cache) patch_cache "$2" ;;
   reapply_cache) reapply_cache "$2" ;;
   restore_cache) restore_cache "$2" ;;
@@ -793,13 +826,13 @@ case "$1" in
   recipe_upload_begin) recipe_upload_begin "$2" ;;
   recipe_upload_chunk) recipe_upload_chunk "$2" "$3" ;;
   recipe_upload_commit) recipe_upload_commit "$2" ;;
-  recipe_finish) recipe_finish ;;
-  recipe_list) recipe_list ;;
-  recipe_list_detail) recipe_list_detail ;;
-  recipe_delete) recipe_delete "$2" ;;
+  recipe_finish) recipe_finish "$2" ;;
+  recipe_list) recipe_list "$2" ;;
+  recipe_list_detail) recipe_list_detail "$2" ;;
+  recipe_delete) recipe_delete "$2" "$3" ;;
   recipe_undo_delete) recipe_undo_delete "$2" ;;
   recipe_delete_and_build) recipe_delete_and_build "$2" "$3" "$4" ;;
-  prepare_recipe) prepare_recipe "$2" ;;
+  prepare_recipe) prepare_recipe "$2" "$3" ;;
   read_chunk) read_chunk "$2" "$3" ;;
   upload_begin) upload_begin "$2" ;;
   upload_chunk) upload_chunk "$2" "$3" ;;
