@@ -1,5 +1,11 @@
 # 更新日志
 
+## v0.11.1
+
+- 修复生成修改结果时，大型主题数据触发 `/system/bin/sh: Argument list too long` 的问题。
+- 上传数据改为小分块传输；遇到设备参数限制时自动清空临时传输并缩小分块重试。
+- 更新前端脚本文件名，避免 KernelSU WebUI 继续使用旧缓存。
+
 ## v0.11.0
 
 - 修复部分 Android WebView 中 Toast 不可见的问题。

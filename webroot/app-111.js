@@ -164,17 +164,29 @@ ${t.textContent}`.slice(0, 6e3);
       for (let n = 0; n < t.length; n++) u[n] = t.charCodeAt(n);
       return u;
     }
+    function te(e) {
+      return /argument list too long|参数列表过长/i.test(String(e?.message || e));
+    }
+    async function Z(e, t, u, n, r) {
+      let l = _(r), a = [48e3, 24e3, 12e3], o;
+      for (let s = 0; s < a.length; s++) {
+        let p = a[s];
+        try {
+          await f(e, n);
+          for (let F = 0; F < l.length; F += p) await f(t, n, l.slice(F, F + p));
+          return await f(u, n);
+        } catch (F) {
+          if (o = F, !te(F) || s === a.length - 1) throw F;
+          h(`设备命令参数受限，已将上传分块缩小到 ${Math.round(a[s + 1] / 1e3)}KB 并重新传输`);
+        }
+      }
+      throw o;
+    }
     async function M(e, t) {
-      let u = _(t);
-      await f("upload_begin", e);
-      for (let n = 0; n < u.length; n += 18e4) await f("upload_chunk", e, u.slice(n, n + 18e4));
-      await f("upload_commit", e);
+      await Z("upload_begin", "upload_chunk", "upload_commit", e, t);
     }
     async function Y(e, t) {
-      let u = _(t);
-      await f("recipe_upload_begin", e);
-      for (let n = 0; n < u.length; n += 6e4) await f("recipe_upload_chunk", e, u.slice(n, n + 6e4));
-      await f("recipe_upload_commit", e);
+      await Z("recipe_upload_begin", "recipe_upload_chunk", "recipe_upload_commit", e, t);
     }
     async function ee(e) {
       let t = Number(await f("prepare_recipe", e));
