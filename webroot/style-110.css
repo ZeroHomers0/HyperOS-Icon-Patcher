@@ -75,9 +75,9 @@ main { max-width: 760px; margin: 0 auto; padding: 16px 14px 42px; }
 .toast {
   max-width: 520px;
   padding: 11px 15px;
-  border: 1px solid color-mix(in srgb, #ff6b6b 45%, transparent);
+  border: 1px solid rgba(255, 107, 107, .55);
   border-radius: 12px;
-  background: color-mix(in srgb, #181b21 94%, transparent);
+  background: rgba(24, 27, 33, .97);
   color: #fff;
   box-shadow: 0 8px 28px rgba(0, 0, 0, .28);
   font-size: 13px;

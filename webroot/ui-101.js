@@ -1,5 +1,7 @@
 (() => {
   const byId = (id) => document.getElementById(id);
+  const MAX_TOASTS = 3;
+  const TOAST_DURATION = 10000;
   const makeSpinner = () => Object.assign(document.createElement("span"), {
     className: "loading-spinner"
   });
@@ -17,16 +19,35 @@
       textContent: String(message || "操作失败")
     });
     toastRegion.appendChild(toast);
-    while (toastRegion.childElementCount > 3) toastRegion.firstElementChild.remove();
+    while (toastRegion.childElementCount > MAX_TOASTS) toastRegion.firstElementChild.remove();
     setTimeout(() => {
       toast.classList.add("is-leaving");
       setTimeout(() => toast.remove(), 200);
-    }, 3200);
+    }, TOAST_DURATION);
   };
 
-  // 旧模块使用 alert 显示校验错误；统一替换为不阻塞页面的 Toast。
+  const appendLog = (message) => {
+    const log = byId("log");
+    if (!log) return;
+    log.textContent = `[${new Date().toLocaleTimeString()}] ${message}\n${log.textContent}`.slice(0, 6000);
+  };
+
+  const notifyError = (message, writeLog = false) => {
+    const text = String(message?.message || message || "操作失败");
+    if (writeLog) appendLog(text);
+    showToast(text);
+  };
+
+  // 提供显式通知 API；alert 仅作为旧调用方的兼容入口。
   window.HIPToast = showToast;
-  window.alert = showToast;
+  window.HIPNotify = notifyError;
+  window.alert = (message) => notifyError(message);
+  window.addEventListener("error", (event) => {
+    notifyError(`页面异常：${event.message || "未知错误"}`, true);
+  });
+  window.addEventListener("unhandledrejection", (event) => {
+    notifyError(`操作异常：${event.reason?.message || event.reason || "未知错误"}`, true);
+  });
 
   for (const button of ["reloadApps", "cacheReload"].map(byId).filter(Boolean)) {
     let startedAt = 0;
@@ -56,7 +77,12 @@
   let callbackIndex = 0;
   const execBackend = (operation) => new Promise((resolve, reject) => {
     const callback = `hip_ui_callback_${Date.now()}_${callbackIndex++}`;
+    const timeout = setTimeout(() => {
+      delete window[callback];
+      reject(new Error("设备命令响应超时，请稍后重试"));
+    }, 60000);
     window[callback] = (errno, stdout, stderr) => {
+      clearTimeout(timeout);
       delete window[callback];
       const output = String(stdout || "").trim();
       if (errno !== 0 || output.startsWith("ERROR:")) reject(new Error(output || stderr || `命令失败：${errno}`));
@@ -69,6 +95,7 @@
         callback
       );
     } catch (error) {
+      clearTimeout(timeout);
       delete window[callback];
       reject(error);
     }
@@ -82,10 +109,9 @@
     const log = byId("log");
     try {
       await execBackend("refresh");
-      log.textContent = `[${new Date().toLocaleTimeString()}] 系统桌面已刷新，图标会重新载入\n${log.textContent}`.slice(0, 6000);
+      appendLog("系统桌面已刷新，图标会重新载入");
     } catch (error) {
-      log.textContent = `[${new Date().toLocaleTimeString()}] 桌面刷新失败：${error.message}\n${log.textContent}`.slice(0, 6000);
-      showToast(`桌面刷新失败：${error.message}`);
+      notifyError(`桌面刷新失败：${error.message}`, true);
     } finally {
       launcherButton.classList.remove("button-loading");
       launcherButton.textContent = "刷新系统桌面图标";

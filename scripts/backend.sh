@@ -4,18 +4,19 @@ MODDIR=${0%/*}
 MODDIR=${MODDIR%/*}
 DATA=/data/adb/hyper_icon_patcher
 TRANSFER="$DATA/transfer"
-BACKUPS="$DATA/backups"
 CACHE_BACKUPS="$DATA/cache-backups"
 PATCHED_CACHE="$DATA/patched-cache"
 CACHE_STATE="$DATA/cache-state"
 CUSTOM_ICONS="$DATA/custom-icons"
 CUSTOM_STAGE="$DATA/custom-icons-stage"
-ACTIVE_ICONS=/data/system/theme/icons
 BB=/data/adb/ksu/bin/busybox
 
 [ -x "$BB" ] || BB=busybox
 
-mkdir -p "$TRANSFER" "$BACKUPS" "$CACHE_BACKUPS" "$PATCHED_CACHE" "$CACHE_STATE" "$CUSTOM_ICONS" "$CUSTOM_STAGE" "$DATA/icons"
+mkdir -p "$TRANSFER" "$CACHE_BACKUPS" "$PATCHED_CACHE" "$CACHE_STATE" "$CUSTOM_ICONS" "$CUSTOM_STAGE" || {
+  echo "ERROR:无法初始化模块数据目录"
+  exit 3
+}
 
 find_cache_root() {
   for ROOT in \
@@ -41,15 +42,28 @@ valid_package() {
   esac
 }
 
-theme_status() {
-  if [ -f "$ACTIVE_ICONS" ]; then
-    SIZE=$("$BB" stat -c '%s' "$ACTIVE_ICONS" 2>/dev/null)
-    printf '{"active":true,"kind":"file","path":"%s","size":%s}\n' "$ACTIVE_ICONS" "${SIZE:-0}"
-  elif [ -d "$ACTIVE_ICONS" ]; then
-    printf '{"active":true,"kind":"directory","path":"%s","size":0}\n' "$ACTIVE_ICONS"
-  else
-    printf '{"active":false,"kind":"missing","path":"%s","size":0}\n' "$ACTIVE_ICONS"
-  fi
+valid_zip() {
+  FILE=$1
+  [ -s "$FILE" ] || return 1
+  SIZE=$("$BB" stat -c '%s' "$FILE" 2>/dev/null)
+  [ -n "$SIZE" ] && [ "$SIZE" -le 83886080 ] || return 1
+  MAGIC=$("$BB" od -An -tx1 -N4 "$FILE" 2>/dev/null | "$BB" tr -d ' \n')
+  case "$MAGIC" in
+    504b0304|504b0506|504b0708) ;;
+    *) return 1 ;;
+  esac
+  "$BB" unzip -l "$FILE" >/dev/null 2>&1
+}
+
+prune_component_backups() {
+  NAME=$1
+  KEEP=5
+  INDEX=0
+  "$BB" ls -1t "$CACHE_BACKUPS/${NAME}-"*.bak 2>/dev/null |
+    while IFS= read -r BACKUP; do
+      INDEX=$((INDEX + 1))
+      [ "$INDEX" -le "$KEEP" ] || rm -f "$BACKUP"
+    done
 }
 
 list_apps() {
@@ -58,26 +72,12 @@ list_apps() {
     "$BB" sort -u
 }
 
-stream_active() {
-  [ -f "$ACTIVE_ICONS" ] || {
-    echo "ERROR:当前主题的 icons 不是可读取文件"
-    exit 2
-  }
-  "$BB" base64 "$ACTIVE_ICONS" | "$BB" tr -d '\n'
-}
-
-theme_metadata() {
-  META=/data/system/theme/description.xml
-  if [ -f "$META" ]; then
-    "$BB" base64 "$META" | "$BB" tr -d '\n'
-  fi
-}
-
 scan_cache() {
   ROOT=$(find_cache_root) || {
     echo "ERROR:未找到主题商店 icons 缓存目录"
     exit 2
   }
+  META_ROOT=${ROOT%/content/icons}/meta
   find "$ROOT" -maxdepth 1 -type f -name '*.mrc' 2>/dev/null |
     while IFS= read -r FILE; do
       SIZE=$("$BB" stat -c '%s' "$FILE" 2>/dev/null)
@@ -85,9 +85,20 @@ scan_cache() {
       BASE=${FILE##*/}
       ID=${BASE%.mrc}
       LABEL=
-      META_ROOT=${ROOT%/content/icons}/meta
       if [ -d "$META_ROOT" ]; then
-        META_FILE=$(find "$META_ROOT" -type f \( -name "$ID.mrm" -o -name "$ID.xml" -o -name "$ID" \) 2>/dev/null | "$BB" head -n 1)
+        META_FILE=
+        for CANDIDATE in \
+          "$META_ROOT/icons/$ID.mrm" \
+          "$META_ROOT/icons/$ID.xml" \
+          "$META_ROOT/$ID.mrm" \
+          "$META_ROOT/$ID.xml"
+        do
+          [ -f "$CANDIDATE" ] && {
+            META_FILE=$CANDIDATE
+            break
+          }
+        done
+        [ -n "$META_FILE" ] || META_FILE=$(find "$META_ROOT" -type f \( -name "$ID.mrm" -o -name "$ID.xml" -o -name "$ID" \) 2>/dev/null | "$BB" head -n 1)
         if [ -n "$META_FILE" ]; then
           LABEL=$("$BB" sed -n '/"titles"[[:space:]]*:/,/^[[:space:]]*}/p' "$META_FILE" 2>/dev/null |
             "$BB" grep -am1 '"zh_CN"[[:space:]]*:' |
@@ -148,6 +159,10 @@ prepare_cache() {
     echo "ERROR:缓存文件不存在"
     exit 2
   }
+  valid_zip "$FILE" || {
+    echo "ERROR:主题商店组件损坏或超过 80MB"
+    exit 2
+  }
   "$BB" base64 "$FILE" | "$BB" tr -d '\n' > "$TRANSFER/source.b64"
   "$BB" wc -c < "$TRANSFER/source.b64" | "$BB" tr -d ' '
 }
@@ -165,6 +180,10 @@ patch_cache() {
     echo "ERROR:请先在上方生成修改结果"
     exit 2
   }
+  valid_zip "$TRANSFER/active.bin" || {
+    echo "ERROR:生成结果不是完整有效的图标组件"
+    exit 2
+  }
 
   TS=$(date +%Y%m%d-%H%M%S)
   BACKUP="$CACHE_BACKUPS/${1}-$TS.bak"
@@ -176,7 +195,11 @@ patch_cache() {
   OWNER=$("$BB" stat -c '%u:%g' "$FILE")
   MODE=$("$BB" stat -c '%a' "$FILE")
   CONTEXT=$("$BB" ls -Zd "$FILE" 2>/dev/null | "$BB" awk '{print $1}')
-  cp "$TRANSFER/active.bin" "$FILE.hip-new" || exit 3
+  rm -f "$FILE.hip-new"
+  cp "$TRANSFER/active.bin" "$FILE.hip-new" || {
+    echo "ERROR:无法创建待写入文件"
+    exit 3
+  }
   chown "$OWNER" "$FILE.hip-new" 2>/dev/null
   chmod "$MODE" "$FILE.hip-new" 2>/dev/null
   [ -n "$CONTEXT" ] && chcon "$CONTEXT" "$FILE.hip-new" 2>/dev/null
@@ -185,9 +208,20 @@ patch_cache() {
     echo "ERROR:写入失败，已恢复备份"
     exit 3
   }
+  SOURCE_HASH=$("$BB" sha256sum "$TRANSFER/active.bin" | "$BB" awk '{print $1}')
+  WRITTEN_HASH=$("$BB" sha256sum "$FILE" | "$BB" awk '{print $1}')
+  if [ -z "$SOURCE_HASH" ] || [ "$SOURCE_HASH" != "$WRITTEN_HASH" ]; then
+    cp -p "$BACKUP" "$FILE"
+    echo "ERROR:写入后校验失败，已恢复备份"
+    exit 3
+  fi
 
-  cp -p "$FILE" "$PATCHED_CACHE/$1"
-  "$BB" sha256sum "$FILE" | "$BB" awk '{print $1}' > "$CACHE_STATE/$1.sha256"
+  cp -p "$FILE" "$PATCHED_CACHE/$1" || {
+    echo "ERROR:组件已写入，但无法保存更新合并副本"
+    exit 3
+  }
+  printf '%s\n' "$WRITTEN_HASH" > "$CACHE_STATE/$1.sha256"
+  prune_component_backups "$1"
   sync
   echo "OK:$BACKUP"
 }
@@ -205,6 +239,10 @@ reapply_cache() {
   [ -f "$FILE" ] || {
     echo "ERROR:主题商店组件不存在"
     exit 2
+  }
+  valid_zip "$SAVED" || {
+    echo "ERROR:保存的自定义组件已损坏"
+    exit 3
   }
 
   TS=$(date +%Y%m%d-%H%M%S)
@@ -234,7 +272,19 @@ restore_cache() {
     echo "ERROR:没有这个组件的备份"
     exit 2
   }
-  cp -p "$LATEST" "$FILE" || exit 3
+  valid_zip "$LATEST" || {
+    echo "ERROR:最近备份已经损坏，已取消恢复"
+    exit 3
+  }
+  cp -p "$LATEST" "$FILE.hip-restore" || {
+    echo "ERROR:无法创建恢复临时文件"
+    exit 3
+  }
+  mv -f "$FILE.hip-restore" "$FILE" || {
+    rm -f "$FILE.hip-restore"
+    echo "ERROR:无法恢复主题商店组件"
+    exit 3
+  }
   sync
   echo "OK:$LATEST"
 }
@@ -312,13 +362,52 @@ recipe_upload_commit() {
     echo "ERROR:图标超过 50KB"
     exit 2
   }
+  MAGIC=$("$BB" od -An -tx1 -N8 "$CUSTOM_STAGE/$1.png" 2>/dev/null | "$BB" tr -d ' \n')
+  [ "$MAGIC" = "89504e470d0a1a0a" ] || {
+    rm -f "$CUSTOM_STAGE/$1.png"
+    echo "ERROR:上传内容不是有效的 PNG 图片"
+    exit 2
+  }
   echo "$SIZE"
 }
 
 recipe_finish() {
-  find "$CUSTOM_ICONS" -maxdepth 1 -type f -name '*.png' -delete 2>/dev/null
-  find "$CUSTOM_STAGE" -maxdepth 1 -type f -name '*.png' -exec cp -p '{}' "$CUSTOM_ICONS/" ';'
-  COUNT=$(find "$CUSTOM_ICONS" -maxdepth 1 -type f -name '*.png' | "$BB" wc -l | "$BB" tr -d ' ')
+  NEXT="$DATA/custom-icons-next"
+  PREVIOUS="$DATA/custom-icons-previous"
+  if [ ! -d "$CUSTOM_ICONS" ] && [ -d "$PREVIOUS" ]; then
+    mv "$PREVIOUS" "$CUSTOM_ICONS" || {
+      echo "ERROR:检测到上次保存中断，但原配方恢复失败"
+      exit 3
+    }
+  fi
+  rm -rf "$NEXT"
+  [ -d "$CUSTOM_ICONS" ] && rm -rf "$PREVIOUS"
+  mkdir -p "$NEXT" || {
+    echo "ERROR:无法创建图标配方临时目录"
+    exit 3
+  }
+  find "$CUSTOM_STAGE" -maxdepth 1 -type f -name '*.png' -exec cp -p '{}' "$NEXT/" ';' || {
+    rm -rf "$NEXT"
+    echo "ERROR:保存图标配方失败，原配方未变更"
+    exit 3
+  }
+  COUNT=$(find "$NEXT" -maxdepth 1 -type f -name '*.png' | "$BB" wc -l | "$BB" tr -d ' ')
+  [ "$COUNT" -gt 0 ] || {
+    rm -rf "$NEXT"
+    echo "ERROR:没有可保存的图标配方"
+    exit 2
+  }
+  mv "$CUSTOM_ICONS" "$PREVIOUS" || {
+    rm -rf "$NEXT"
+    echo "ERROR:无法切换图标配方"
+    exit 3
+  }
+  mv "$NEXT" "$CUSTOM_ICONS" || {
+    mv "$PREVIOUS" "$CUSTOM_ICONS"
+    echo "ERROR:保存图标配方失败，已恢复原配方"
+    exit 3
+  }
+  rm -rf "$PREVIOUS"
   echo "OK:$COUNT"
 }
 
@@ -342,35 +431,34 @@ prepare_recipe() {
   "$BB" wc -c < "$TRANSFER/source.b64" | "$BB" tr -d ' '
 }
 
-prepare_active() {
-  [ -f "$ACTIVE_ICONS" ] || {
-    echo "ERROR:当前主题的 icons 不是可读取文件"
-    exit 2
-  }
-  "$BB" base64 "$ACTIVE_ICONS" | "$BB" tr -d '\n' > "$TRANSFER/source.b64"
-  "$BB" wc -c < "$TRANSFER/source.b64" | "$BB" tr -d ' '
-}
-
 read_chunk() {
   OFFSET=$1
   COUNT=$2
   case "$OFFSET:$COUNT" in
     *[!0-9:]*) exit 2 ;;
   esac
+  [ -f "$TRANSFER/source.b64" ] || {
+    echo "ERROR:读取源尚未准备完成"
+    exit 2
+  }
+  [ "$COUNT" -le 400000 ] || {
+    echo "ERROR:单次读取数据过大"
+    exit 2
+  }
   START=$((OFFSET + 1))
   "$BB" tail -c "+$START" "$TRANSFER/source.b64" | "$BB" head -c "$COUNT"
 }
 
 upload_begin() {
   TARGET=$1
-  case "$TARGET" in active|export) ;; *) exit 2 ;; esac
+  case "$TARGET" in active) ;; *) exit 2 ;; esac
   : > "$TRANSFER/$TARGET.b64"
 }
 
 upload_chunk() {
   TARGET=$1
   CHUNK=$2
-  case "$TARGET" in active|export) ;; *) exit 2 ;; esac
+  case "$TARGET" in active) ;; *) exit 2 ;; esac
   case "$CHUNK" in
     *[!A-Za-z0-9+/=]*) echo "ERROR:上传数据无效"; exit 2 ;;
   esac
@@ -379,80 +467,17 @@ upload_chunk() {
 
 upload_commit() {
   TARGET=$1
-  case "$TARGET" in active|export) ;; *) exit 2 ;; esac
+  case "$TARGET" in active) ;; *) exit 2 ;; esac
   "$BB" base64 -d "$TRANSFER/$TARGET.b64" > "$TRANSFER/$TARGET.bin" || {
     echo "ERROR:无法解码上传文件"
     exit 2
   }
+  valid_zip "$TRANSFER/$TARGET.bin" || {
+    rm -f "$TRANSFER/$TARGET.bin"
+    echo "ERROR:上传结果不是完整有效的图标组件"
+    exit 2
+  }
   "$BB" stat -c '%s' "$TRANSFER/$TARGET.bin"
-}
-
-backup_active() {
-  [ -f "$ACTIVE_ICONS" ] || return 1
-  TS=$(date +%Y%m%d-%H%M%S)
-  cp -p "$ACTIVE_ICONS" "$BACKUPS/icons-$TS.zip" || return 1
-  printf '%s\n' "$BACKUPS/icons-$TS.zip"
-}
-
-apply_active() {
-  [ -s "$TRANSFER/active.bin" ] || {
-    echo "ERROR:没有待应用的图标组件"
-    exit 2
-  }
-  [ -f "$ACTIVE_ICONS" ] || {
-    echo "ERROR:未找到当前主题图标组件"
-    exit 2
-  }
-
-  OWNER=$("$BB" stat -c '%u:%g' "$ACTIVE_ICONS")
-  MODE=$("$BB" stat -c '%a' "$ACTIVE_ICONS")
-  CONTEXT=$("$BB" ls -Zd "$ACTIVE_ICONS" 2>/dev/null | "$BB" awk '{print $1}')
-  SAVED=$(backup_active) || {
-    echo "ERROR:备份失败，已取消写入"
-    exit 3
-  }
-
-  cp "$TRANSFER/active.bin" "$ACTIVE_ICONS.new" || exit 3
-  chown "$OWNER" "$ACTIVE_ICONS.new" 2>/dev/null
-  chmod "$MODE" "$ACTIVE_ICONS.new" 2>/dev/null
-  [ -n "$CONTEXT" ] && chcon "$CONTEXT" "$ACTIVE_ICONS.new" 2>/dev/null
-  mv -f "$ACTIVE_ICONS.new" "$ACTIVE_ICONS" || {
-    cp -p "$SAVED" "$ACTIVE_ICONS"
-    echo "ERROR:写入失败，已恢复备份"
-    exit 3
-  }
-  sync
-  echo "OK:$SAVED"
-}
-
-restore_latest() {
-  LATEST=$("$BB" ls -1t "$BACKUPS"/icons-*.zip 2>/dev/null | "$BB" head -n 1)
-  [ -n "$LATEST" ] || {
-    echo "ERROR:没有可恢复的备份"
-    exit 2
-  }
-  cp -p "$LATEST" "$ACTIVE_ICONS" || exit 3
-  sync
-  echo "OK:$LATEST"
-}
-
-export_file() {
-  NAME=$1
-  case "$NAME" in
-    ''|*[!a-zA-Z0-9._-]*) NAME=HyperIconPatcher-export.mtz ;;
-  esac
-  case "$NAME" in *.mtz) ;; *) NAME="$NAME.mtz" ;; esac
-  DEST="/sdcard/Download/$NAME"
-  [ -s "$TRANSFER/export.bin" ] || {
-    echo "ERROR:请先选择 MTZ 并生成结果"
-    exit 2
-  }
-  cp "$TRANSFER/export.bin" "$DEST" || {
-    echo "ERROR:无法写入 Download 目录"
-    exit 3
-  }
-  chmod 0644 "$DEST" 2>/dev/null
-  echo "OK:$DEST"
 }
 
 refresh_launcher() {
@@ -462,10 +487,7 @@ refresh_launcher() {
 }
 
 case "$1" in
-  status) theme_status ;;
   list_apps) list_apps ;;
-  stream_active) stream_active ;;
-  theme_metadata) theme_metadata ;;
   scan_cache) scan_cache ;;
   stream_cache) stream_cache "$2" ;;
   prepare_cache) prepare_cache "$2" ;;
@@ -480,14 +502,10 @@ case "$1" in
   recipe_finish) recipe_finish ;;
   recipe_list) recipe_list ;;
   prepare_recipe) prepare_recipe "$2" ;;
-  prepare_active) prepare_active ;;
   read_chunk) read_chunk "$2" "$3" ;;
   upload_begin) upload_begin "$2" ;;
   upload_chunk) upload_chunk "$2" "$3" ;;
   upload_commit) upload_commit "$2" ;;
-  apply) apply_active ;;
-  restore) restore_latest ;;
-  export) export_file "$2" ;;
   refresh) refresh_launcher ;;
   *) echo "ERROR:未知操作"; exit 2 ;;
 esac
