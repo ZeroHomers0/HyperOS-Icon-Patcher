@@ -2,5 +2,5 @@ id=hyper_icon_patcher
 name=HyperOS 图标补全器
 version=0.9.8
 versionCode=98
-author=Codex
+author=eridanus
 description=以主题商店 MRC 组件补充 PNG 图标，支持上游优先的更新合并、50KB 限制、备份恢复和浅深色外观。
