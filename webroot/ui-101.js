@@ -53,6 +53,41 @@
     notifyError(`操作异常：${event.reason?.message || event.reason || "未知错误"}`, true);
   });
 
+  // Android IME 会连续改变 visualViewport；每帧最多写一次 CSS，避免 resize 风暴。
+  const viewport = window.visualViewport;
+  let viewportFrame = 0;
+  let baselineViewportHeight = viewport?.height || window.innerHeight;
+  let keyboardOpen = false;
+  const isEditable = (element) => element?.matches?.("input, textarea, [contenteditable=true]");
+  const syncViewport = () => {
+    viewportFrame = 0;
+    const height = Math.round(viewport?.height || window.innerHeight);
+    const offset = Math.round(viewport?.offsetTop || 0);
+    const editing = isEditable(document.activeElement);
+    if (!editing) baselineViewportHeight = Math.max(baselineViewportHeight, height);
+    const nextKeyboardOpen = editing && height < baselineViewportHeight - 80;
+    document.documentElement.style.setProperty("--hip-visual-height", `${height}px`);
+    document.documentElement.style.setProperty("--hip-visual-offset", `${offset}px`);
+    document.body.classList.toggle("keyboard-open", nextKeyboardOpen);
+    if (nextKeyboardOpen !== keyboardOpen) {
+      keyboardOpen = nextKeyboardOpen;
+      window.dispatchEvent(new CustomEvent("hip-keyboard-changed", { detail: { open: keyboardOpen } }));
+    }
+  };
+  const scheduleViewportSync = () => {
+    if (!viewportFrame) viewportFrame = requestAnimationFrame(syncViewport);
+  };
+  viewport?.addEventListener("resize", scheduleViewportSync);
+  viewport?.addEventListener("scroll", scheduleViewportSync);
+  window.addEventListener("resize", scheduleViewportSync);
+  window.addEventListener("orientationchange", () => {
+    baselineViewportHeight = 0;
+    scheduleViewportSync();
+  });
+  document.addEventListener("focusin", scheduleViewportSync);
+  document.addEventListener("focusout", () => setTimeout(scheduleViewportSync, 0));
+  scheduleViewportSync();
+
   for (const button of ["reloadApps"].map(byId).filter(Boolean)) {
     let startedAt = 0;
     let stopTimer = 0;
@@ -108,18 +143,35 @@
   const openDialog = (id) => {
     const dialog = byId(id);
     if (dialog && !dialog.open) dialog.showModal();
+    document.body.classList.toggle("sheet-open", Boolean(document.querySelector("dialog[open]")));
   };
   byId("openAppPicker")?.addEventListener("click", () => openDialog("appPicker"));
   byId("openRecipeManager")?.addEventListener("click", () => {
     openDialog("recipeManager");
     window.dispatchEvent(new Event("hip-recipes-changed"));
   });
+  byId("openGroupCreator")?.addEventListener("click", () => {
+    const manager = byId("recipeManager");
+    const creator = byId("groupCreator");
+    if (manager?.open) manager.close();
+    creator.dataset.returnToManager = "true";
+    openDialog("groupCreator");
+    requestAnimationFrame(() => byId("newGroupName")?.focus());
+  });
   document.querySelectorAll(".close-sheet").forEach((button) =>
     button.addEventListener("click", () => byId(button.dataset.close)?.close()));
-  document.querySelectorAll("dialog").forEach((dialog) =>
+  document.querySelectorAll("dialog").forEach((dialog) => {
     dialog.addEventListener("click", (event) => {
       if (event.target === dialog) dialog.close();
-    }));
+    });
+    dialog.addEventListener("close", () => {
+      document.body.classList.toggle("sheet-open", Boolean(document.querySelector("dialog[open]")));
+      if (dialog.id === "groupCreator" && dialog.dataset.returnToManager === "true") {
+        delete dialog.dataset.returnToManager;
+        openDialog("recipeManager");
+      }
+    });
+  });
   window.addEventListener("hip-group-changed", (event) => {
     const chip = byId("activeGroupChip");
     if (!chip) return;

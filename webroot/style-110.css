@@ -251,16 +251,59 @@ input[type=file] { display: none; }
 .subheading { margin: 18px 0 10px; font-size: 14px; }
 .sheet {
   width: min(720px, calc(100% - 20px)); max-height: 88dvh; margin: auto;
-  padding: 17px; overflow: auto; border: 1px solid var(--line); border-radius: 22px;
+  padding: 17px; overflow: hidden; border: 1px solid var(--line); border-radius: 22px;
   background: var(--card); color: var(--text); box-shadow: 0 24px 80px rgba(0,0,0,.45);
 }
+.sheet[open] { display: flex; flex-direction: column; }
 .sheet::backdrop { background: rgba(0,0,0,.58); backdrop-filter: blur(3px); }
-.sheet-header { display: flex; align-items: start; justify-content: space-between; position: sticky; top: -17px; z-index: 2; margin: -17px -17px 12px; padding: 17px; background: var(--card); border-bottom: 1px solid var(--line); }
+.sheet-header { display: flex; flex: 0 0 auto; align-items: start; justify-content: space-between; z-index: 2; margin: -17px -17px 12px; padding: 17px; background: var(--card); border-bottom: 1px solid var(--line); }
 .sheet-header h2 { margin-bottom: 4px; }
 .sheet-header .muted { margin: 0; }
+.sheet-tools { flex: 0 0 auto; }
+.sheet-list, .sheet-scroll { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.sheet-scroll { flex: 1 1 auto; padding: 1px; }
+.sheet-primary-action { margin: 0 0 12px; }
+.compact-sheet { width: min(440px, calc(100% - 24px)); }
+.compact-sheet .group-create { margin: 0; }
 .picker-tools .search { flex: 1; }
 .batch-bar { justify-content: flex-end; margin-bottom: 12px; }
 .batch-bar label { margin-right: auto; font-size: 13px; }
 .recipe-head input { flex: 0 0 auto; }
 .recipe-actions { display: flex; margin: 0 0 0 8px; }
 .recipe-actions button { white-space: nowrap; }
+
+/* Keep keyboard animation work inside the list instead of re-centering the whole page. */
+@media (max-width: 760px), (pointer: coarse) {
+  .sheet {
+    position: fixed;
+    inset: var(--hip-visual-offset, 0px) 0 auto;
+    width: 100%;
+    height: var(--hip-visual-height, 100dvh);
+    max-height: none;
+    margin: 0;
+    padding: 16px;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .sheet::backdrop { backdrop-filter: none; }
+  .sheet-header { margin: -16px -16px 12px; padding: calc(14px + env(safe-area-inset-top)) 16px 14px; }
+  .app-list { flex: 1 1 auto; max-height: none; }
+  .compact-sheet {
+    inset: calc(var(--hip-visual-offset, 0px) + 12px) 12px auto;
+    width: calc(100% - 24px);
+    height: auto;
+    max-height: calc(var(--hip-visual-height, 100dvh) - 24px);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+  }
+}
+
+body.keyboard-open .sheet,
+body.keyboard-open .sheet::backdrop {
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+/* Large groups should not paint off-screen rows during viewport changes. */
+.group-item, .recipe-item, .app { content-visibility: auto; contain-intrinsic-size: 64px; }

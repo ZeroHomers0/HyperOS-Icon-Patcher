@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#111318">
   <title>HyperOS 图标补全器</title>
-  <link rel="stylesheet" href="style-110.css?v=143">
+  <link rel="stylesheet" href="style-110.css?v=144">
 </head>
 <body>
   <header>
@@ -111,11 +111,11 @@
         <div><h2>选择应用</h2><p id="appCount" class="muted">加载应用列表中……</p></div>
         <button class="icon-button close-sheet" data-close="appPicker" aria-label="关闭">×</button>
       </div>
-      <div class="title-actions picker-tools">
+      <div class="title-actions picker-tools sheet-tools">
         <input id="search" class="search" type="search" placeholder="搜索应用名称">
         <button id="reloadApps" class="icon-button" title="刷新">↻</button>
       </div>
-      <div id="appList" class="app-list"></div>
+      <div id="appList" class="app-list sheet-list"></div>
     </dialog>
 
     <dialog id="recipeManager" class="sheet">
@@ -123,19 +123,31 @@
         <div><h2>管理修补组</h2><p id="recipeInfo" class="muted">创建或选择修补组</p></div>
         <button class="icon-button close-sheet" data-close="recipeManager" aria-label="关闭">×</button>
       </div>
+      <div class="sheet-tools">
+        <button id="openGroupCreator" class="primary full-button sheet-primary-action">新建修补组</button>
+      </div>
+      <div class="sheet-scroll">
+        <div id="groupList" class="group-list"></div>
+        <h3 class="subheading">组内自定义图标</h3>
+        <div class="batch-bar">
+          <label><input id="recipeSelectAll" type="checkbox"> 全选</label>
+          <button id="recipeBatchDelete" class="danger compact-button" disabled>删除所选</button>
+          <button id="recipeReload" class="icon-button" title="刷新">↻</button>
+        </div>
+        <div id="recipeEmpty" class="empty">当前修补组尚无自定义图标</div>
+        <div id="recipeList" class="recipe-list"></div>
+      </div>
+    </dialog>
+
+    <dialog id="groupCreator" class="sheet compact-sheet">
+      <div class="sheet-header">
+        <div><h2>新建修补组</h2><p class="muted">名称最多 40 个字符</p></div>
+        <button class="icon-button close-sheet" data-close="groupCreator" aria-label="关闭">×</button>
+      </div>
       <div class="group-create">
-        <input id="newGroupName" class="search" maxlength="40" placeholder="新修补组名称（最多 40 个字符）">
+        <input id="newGroupName" class="search" maxlength="40" enterkeyhint="done" placeholder="修补组名称">
         <button id="groupCreate" class="primary compact-button">创建</button>
       </div>
-      <div id="groupList" class="group-list"></div>
-      <h3 class="subheading">组内自定义图标</h3>
-      <div class="batch-bar">
-        <label><input id="recipeSelectAll" type="checkbox"> 全选</label>
-        <button id="recipeBatchDelete" class="danger compact-button" disabled>删除所选</button>
-        <button id="recipeReload" class="icon-button" title="刷新">↻</button>
-      </div>
-      <div id="recipeEmpty" class="empty">当前修补组尚无自定义图标</div>
-      <div id="recipeList" class="recipe-list"></div>
     </dialog>
 
     <details id="logPanel" class="log-panel">
@@ -145,10 +157,10 @@
   </main>
 
   <input id="iconInput" type="file" accept="image/png,.png" hidden>
-  <script src="ui-101.js?v=143"></script>
-  <script type="module" src="app-121.js?v=143"></script>
-  <script type="module" src="cache-101.js?v=143"></script>
-  <script type="module" src="recipe-123.js?v=143"></script>
+  <script src="ui-101.js?v=144"></script>
+  <script type="module" src="app-121.js?v=144"></script>
+  <script type="module" src="cache-101.js?v=144"></script>
+  <script type="module" src="recipe-123.js?v=144"></script>
   <script src="theme-094.js"></script>
 </body>
 </html>

@@ -138,6 +138,22 @@ ${t.textContent}`.slice(0, 6e3);
     const APP_CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1e3;
     const APP_CACHE_MAX_ITEMS = 5000;
     let appIconObserver;
+    function startAppIconObserver() {
+      appIconObserver?.disconnect();
+      appIconObserver = undefined;
+      if (!("IntersectionObserver" in window) || document.body.classList.contains("keyboard-open")) return false;
+      appIconObserver = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const image = entry.target;
+          image.src = image.dataset.src;
+          delete image.dataset.src;
+          appIconObserver.unobserve(image);
+        }
+      }, { root: c("appList"), rootMargin: "120px" });
+      c("appList").querySelectorAll("img[data-src]").forEach((image) => appIconObserver.observe(image));
+      return true;
+    }
     function validPackageName(value) {
       return typeof value === "string" && value.length > 0 && value.length <= 255 && !/^[.-]/.test(value) && /^[A-Za-z0-9._-]+$/.test(value);
     }
@@ -226,26 +242,16 @@ ${t.textContent}`.slice(0, 6e3);
     function O() {
       let e = c("search").value.trim().toLowerCase(), t = i.apps.filter((u) => `${u.appLabel} ${u.packageName}`.toLowerCase().includes(e));
       appIconObserver?.disconnect();
-      if ("IntersectionObserver" in window) {
-        appIconObserver = new IntersectionObserver((entries) => {
-          for (const entry of entries) {
-            if (!entry.isIntersecting) continue;
-            const image = entry.target;
-            image.src = image.dataset.src;
-            delete image.dataset.src;
-            appIconObserver.unobserve(image);
-          }
-        }, { root: c("appList"), rootMargin: "120px" });
-      }
+      appIconObserver = undefined;
+      const deferIcons = "IntersectionObserver" in window;
       c("appCount").textContent = `\u7528\u6237\u5E94\u7528 ${i.apps.length} \u4E2A`, c("appList").replaceChildren(...t.map((u) => {
         let n = document.createElement("button");
         n.className = "app";
         let r = document.createElement("img");
         r.className = "app-icon";
         r.alt = "";
-        if (appIconObserver) {
+        if (deferIcons) {
           r.dataset.src = `ksu://icon/${u.packageName}`;
-          appIconObserver.observe(r);
         } else {
           r.loading = "lazy";
           r.src = `ksu://icon/${u.packageName}`;
@@ -253,6 +259,7 @@ ${t.textContent}`.slice(0, 6e3);
         let l = document.createElement("span");
         return l.className = "app-name", l.textContent = u.appLabel || "\u672A\u547D\u540D\u5E94\u7528", n.append(r, l), n.addEventListener("click", () => te(u)), n;
       }));
+      if (deferIcons) startAppIconObserver();
     }
     var b = null;
     function te(e) {
@@ -325,6 +332,10 @@ ${t.textContent}`.slice(0, 6e3);
         clearTimeout(searchTimer);
         searchTimer = setTimeout(O, 120);
       };
+      window.addEventListener("hip-keyboard-changed", (event) => {
+        if (event.detail?.open) appIconObserver?.disconnect();
+        else if (c("appPicker").open) startAppIconObserver();
+      });
     })(), c("reloadApps").onclick = P, c("clearSelection").onclick = clearPendingIcons, c("buildBtn").onclick = async () => {
       if (!window.HIPGroups?.selectedId?.()) {
         G("\u6DFB\u52A0\u5931\u8D25\uFF1A\u8BF7\u5148\u521B\u5EFA\u5E76\u9009\u62E9\u4FEE\u8865\u7EC4");

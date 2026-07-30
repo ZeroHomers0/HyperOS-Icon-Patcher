@@ -159,7 +159,26 @@
       const url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
       objectUrls.push(url);
       image.src = url;
+      image.dataset.previewLoaded = "true";
     } catch {}
+  }
+
+  function startPreviewObserver(groupId) {
+    previewObserver?.disconnect();
+    previewObserver = undefined;
+    if (!("IntersectionObserver" in window) || document.body.classList.contains("keyboard-open")) return false;
+    // 键盘改变可视区域时暂停观察；关闭后仅恢复尚未读取的预览。
+    previewObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        previewObserver?.unobserve(entry.target);
+        const row = entry.target._hipRow;
+        if (row) loadPreview(entry.target, row, groupId);
+      }
+    }, { root: byId("recipeManager"), rootMargin: "120px" });
+    byId("recipeList").querySelectorAll("img:not([data-preview-loaded=true])")
+      .forEach((image) => previewObserver.observe(image));
+    return true;
   }
 
   function updateBatchBar(total) {
@@ -209,17 +228,6 @@
       });
       byId("recipeInfo").textContent = `${group.name} · ${rows.length} 个自定义图标`;
       byId("recipeEmpty").hidden = rows.length > 0;
-      if ("IntersectionObserver" in window) {
-        // 只读取即将进入视口的小 PNG，避免大修补组打开时一次发出数百条设备命令。
-        previewObserver = new IntersectionObserver((entries) => {
-          for (const entry of entries) {
-            if (!entry.isIntersecting) continue;
-            previewObserver?.unobserve(entry.target);
-            const row = entry.target._hipRow;
-            if (row) loadPreview(entry.target, row, group.id);
-          }
-        }, { root: byId("recipeManager"), rootMargin: "120px" });
-      }
       const nodes = [];
       for (const row of rows) {
         const item = document.createElement("div");
@@ -251,10 +259,9 @@
         nodes.push(item);
       }
       byId("recipeList").replaceChildren(...nodes);
-      byId("recipeList").querySelectorAll("img").forEach((image) => {
-        if (previewObserver) previewObserver.observe(image);
-        else loadPreview(image, image._hipRow, group.id);
-      });
+      if (!startPreviewObserver(group.id) && !document.body.classList.contains("keyboard-open")) {
+        byId("recipeList").querySelectorAll("img").forEach((image) => loadPreview(image, image._hipRow, group.id));
+      }
       updateBatchBar(rows.length);
     } catch (error) { notify(`读取组内图标失败：${error.message}`); }
     finally { button.disabled = false; }
@@ -267,8 +274,15 @@
       const id = (await exec("group_create", name)).replace(/^OK:/, "");
       byId("newGroupName").value = "";
       await refreshGroups(id);
+      byId("groupCreator").close();
     } catch (error) { notify(`创建失败：${error.message}`); }
   };
+  byId("newGroupName").addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.isComposing) {
+      event.preventDefault();
+      byId("groupCreate").click();
+    }
+  });
   byId("recipeReload").onclick = refreshIcons;
   byId("recipeBatchDelete").onclick = async () => {
     try { await removePackages([...selectedPackages]); }
@@ -282,6 +296,14 @@
   };
   window.addEventListener("hip-recipes-changed", async () => {
     await refreshGroups(selectedId());
+  });
+  window.addEventListener("hip-keyboard-changed", (event) => {
+    if (event.detail?.open) {
+      previewObserver?.disconnect();
+      return;
+    }
+    const group = selectedGroup();
+    if (group && byId("recipeManager").open) startPreviewObserver(group.id);
   });
   window.HIPGroups = {
     selectedId,

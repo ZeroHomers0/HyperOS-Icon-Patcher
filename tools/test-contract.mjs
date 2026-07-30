@@ -24,6 +24,16 @@ for (const [file, pattern] of Object.entries(files)) {
 for (const match of html.matchAll(/(?:src|href)="([^"?#]+\.(?:js|css))(?:\?v=(\d+))?/g)) {
   if (!fs.existsSync(`webroot/${match[1]}`)) throw new Error(`missing WebUI asset ${match[1]}`);
 }
+if (!html.includes('id="groupCreator"') || !html.includes('class="sheet-scroll"')) {
+  throw new Error("mobile sheet structure is incomplete");
+}
+const ui = read("webroot/ui-101.js");
+if (!ui.includes("visualViewport") || !ui.includes("hip-keyboard-changed")) {
+  throw new Error("keyboard viewport contract is missing");
+}
+if (!read("webroot/style-110.css").includes("--hip-visual-height")) {
+  throw new Error("mobile visual viewport CSS contract is missing");
+}
 
 const cases = new Set([...backend.matchAll(/^  ([a-z_]+)\)/gm)].map((match) => match[1]));
 const operations = new Set();
