@@ -1,7 +1,7 @@
 (() => {
   const byId = (id) => document.getElementById(id);
   const MAX_TOASTS = 3;
-  const TOAST_DURATION = 10000;
+  const TOAST_DURATION = 3000;
   const makeSpinner = () => Object.assign(document.createElement("span"), {
     className: "loading-spinner"
   });
@@ -35,12 +35,16 @@
   const notifyError = (message, writeLog = false) => {
     const text = String(message?.message || message || "操作失败");
     if (writeLog) appendLog(text);
+    const logPanel = byId("logPanel");
+    if (logPanel) logPanel.open = true;
     showToast(text);
   };
 
   // 提供显式通知 API；alert 仅作为旧调用方的兼容入口。
   window.HIPToast = showToast;
   window.HIPNotify = notifyError;
+  // 清除旧版本保存的整份 MRC 浏览器缓存；主题必须由用户显式加载。
+  try { indexedDB.deleteDatabase("hyper-icon-patcher"); } catch {}
   window.alert = (message) => notifyError(message);
   window.addEventListener("error", (event) => {
     notifyError(`页面异常：${event.message || "未知错误"}`, true);
@@ -49,7 +53,7 @@
     notifyError(`操作异常：${event.reason?.message || event.reason || "未知错误"}`, true);
   });
 
-  for (const button of ["reloadApps", "cacheReload"].map(byId).filter(Boolean)) {
+  for (const button of ["reloadApps"].map(byId).filter(Boolean)) {
     let startedAt = 0;
     let stopTimer = 0;
     const start = () => {
@@ -116,6 +120,13 @@
     dialog.addEventListener("click", (event) => {
       if (event.target === dialog) dialog.close();
     }));
+  window.addEventListener("hip-group-changed", (event) => {
+    const chip = byId("activeGroupChip");
+    if (!chip) return;
+    const name = event.detail?.name;
+    chip.textContent = name ? `当前修补组：${name}` : "尚未选择修补组";
+    chip.hidden = !name;
+  });
 
   const launcherButton = byId("refreshLauncher");
   launcherButton.addEventListener("click", async () => {

@@ -3,11 +3,44 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestInspectArchiveReturnsDrawablePNGCountAndPrefix(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source.mrc")
+	createTestZIP(t, source, map[string][]byte{
+		"description.xml":                           []byte("<title>Test</title>"),
+		"res/drawable-xxhdpi/com.example.one.png":   []byte("one"),
+		"res/drawable-nodpi-v4/com.example.two.png": []byte("two"),
+		"res/drawable-xxhdpi/readme.txt":            []byte("skip"),
+		"assets/unrelated.png":                      []byte("skip"),
+	})
+
+	var output bytes.Buffer
+	if err := inspectArchive(source, &output); err != nil {
+		t.Fatal(err)
+	}
+	var index archiveIndex
+	if err := json.Unmarshal(output.Bytes(), &index); err != nil {
+		t.Fatal(err)
+	}
+	if index.Prefix != "res/drawable-nodpi-v4/" {
+		t.Fatalf("unexpected prefix: %s", index.Prefix)
+	}
+	if index.EntryCount != 2 {
+		t.Fatalf("entry count = %d, want 2", index.EntryCount)
+	}
+	if index.Size <= 0 {
+		t.Fatal("source size missing")
+	}
+}
 
 func TestPatchPreservesOriginalAndReplacesIcon(t *testing.T) {
 	root := t.TempDir()
@@ -158,9 +191,58 @@ func TestMissingOnlyKeepsThemeIconsAndAddsUnadaptedIcons(t *testing.T) {
 	}
 }
 
+func TestMissingOnlySkipsOutputWhenNothingIsMissing(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "theme.mrc")
+	output := filepath.Join(root, "should-not-exist.mrc")
+	icons := filepath.Join(root, "saved-icons")
+	if err := os.Mkdir(icons, 0700); err != nil {
+		t.Fatal(err)
+	}
+	createTestZIP(t, source, map[string][]byte{
+		"res/drawable-xxhdpi/com.example.present.png": []byte("theme-icon"),
+	})
+	custom := append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, bytes.Repeat([]byte{8}, 40)...)
+	if err := os.WriteFile(filepath.Join(icons, "com.example.present.png"), custom, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := patchWithOptions(source, output, icons, "", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatal("missing-only merge created an output archive even though no entries were missing")
+	}
+}
+
 func TestPatchRejectsUnsafePrefix(t *testing.T) {
 	if err := patch("unused", "unused", "unused", "../drawable"); err == nil {
 		t.Fatal("unsafe prefix was accepted")
+	}
+}
+
+func TestLoadIconsRejectsExcessiveCount(t *testing.T) {
+	dir := t.TempDir()
+	icon := append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, byte(1))
+	for index := 0; index <= maxIconCount; index++ {
+		name := filepath.Join(dir, fmt.Sprintf("com.example.app%d.png", index))
+		if err := os.WriteFile(name, icon, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := loadIcons(dir); err == nil {
+		t.Fatal("excessive icon count was accepted")
+	}
+}
+
+func TestValidPackageRejectsUnsafeOrOversizedNames(t *testing.T) {
+	for _, value := range []string{"", ".hidden", "-option", "com/example/app", strings.Repeat("a", 256)} {
+		if validPackage(value) {
+			t.Fatalf("invalid package accepted: %q", value)
+		}
+	}
+	if !validPackage("com.example_valid-app") {
+		t.Fatal("valid package was rejected")
 	}
 }
 

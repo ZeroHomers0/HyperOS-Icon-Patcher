@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 const (
 	maxSourceSize = 80 * 1024 * 1024
 	maxIconSize   = 50 * 1024
+	maxIconCount  = 500
 )
 
 type iconFile struct {
@@ -32,12 +34,59 @@ func main() {
 	icons := flag.String("icons", "", "directory containing package-name PNG files")
 	prefix := flag.String("prefix", "", "ZIP drawable directory")
 	missingOnly := flag.Bool("missing-only", false, "only add icons missing from the source")
+	inspect := flag.Bool("inspect", false, "print drawable entry index as JSON")
 	flag.Parse()
 
+	if *inspect {
+		if err := inspectArchive(*source, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "ERROR:"+err.Error())
+			os.Exit(1)
+		}
+		return
+	}
 	if err := patchWithOptions(*source, *output, *icons, *prefix, *missingOnly); err != nil {
 		fmt.Fprintln(os.Stderr, "ERROR:"+err.Error())
 		os.Exit(1)
 	}
+}
+
+type archiveIndex struct {
+	Prefix     string `json:"prefix"`
+	EntryCount int    `json:"entryCount"`
+	Size       int64  `json:"size"`
+}
+
+func inspectArchive(source string, output io.Writer) error {
+	if source == "" {
+		return errors.New("missing source path")
+	}
+	info, err := os.Stat(source)
+	if err != nil {
+		return fmt.Errorf("source unavailable: %w", err)
+	}
+	if info.Size() <= 0 || info.Size() > maxSourceSize {
+		return errors.New("source size is invalid")
+	}
+	reader, err := zip.OpenReader(source)
+	if err != nil {
+		return fmt.Errorf("source ZIP is invalid: %w", err)
+	}
+	defer reader.Close()
+	entryCount := 0
+	for _, entry := range reader.File {
+		if !safeEntryName(entry.Name) {
+			return fmt.Errorf("unsafe ZIP entry: %q", entry.Name)
+		}
+		dir, name := path.Split(entry.Name)
+		if isDrawableDirectory(dir) && strings.HasSuffix(strings.ToLower(name), ".png") {
+			entryCount++
+		}
+	}
+	return json.NewEncoder(output).Encode(archiveIndex{
+		Prefix:     preferredDrawablePrefix(reader.File),
+		EntryCount: entryCount,
+		Size:       info.Size(),
+	})
 }
 
 func patch(source, output, iconsDir, prefix string) (err error) {
@@ -83,6 +132,10 @@ func patchWithOptions(source, output, iconsDir, prefix string, missingOnly bool)
 			return fmt.Errorf("unsafe ZIP entry: %q", entry.Name)
 		}
 	}
+	if len(replaced) == 0 {
+		fmt.Printf("OK:%d:0:%d\n", len(icons), sourceInfo.Size())
+		return nil
+	}
 
 	if err = writePreservingArchive(source, output, replaced); err != nil {
 		return err
@@ -111,12 +164,6 @@ func writePreservingArchive(source, output string, replacements map[string]iconF
 		return err
 	}
 
-	var result bytes.Buffer
-	result.Grow(len(data) + len(replacements)*(maxIconSize+100))
-	if _, err = result.Write(data[:centralOffset]); err != nil {
-		return err
-	}
-
 	retained := make([]centralRecord, 0, len(records)+len(replacements))
 	for _, record := range records {
 		if _, replace := replacements[record.name]; !replace {
@@ -129,41 +176,6 @@ func writePreservingArchive(source, output string, replacements map[string]iconF
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	now := time.Now()
-	for _, name := range names {
-		offset := result.Len()
-		icon := replacements[name]
-		local, central, buildErr := buildStoredEntry(name, icon.data, offset, now)
-		if buildErr != nil {
-			return buildErr
-		}
-		if _, err = result.Write(local); err != nil {
-			return err
-		}
-		retained = append(retained, centralRecord{name: name, raw: central})
-	}
-
-	newCentralOffset := result.Len()
-	for _, record := range retained {
-		if _, err = result.Write(record.raw); err != nil {
-			return err
-		}
-	}
-	centralSize := result.Len() - newCentralOffset
-	if len(retained) > 65535 || newCentralOffset > int(^uint32(0)) || centralSize > int(^uint32(0)) {
-		return errors.New("ZIP64 output is not supported")
-	}
-	eocd := make([]byte, 22+len(comment))
-	binary.LittleEndian.PutUint32(eocd[0:4], 0x06054b50)
-	binary.LittleEndian.PutUint16(eocd[8:10], uint16(len(retained)))
-	binary.LittleEndian.PutUint16(eocd[10:12], uint16(len(retained)))
-	binary.LittleEndian.PutUint32(eocd[12:16], uint32(centralSize))
-	binary.LittleEndian.PutUint32(eocd[16:20], uint32(newCentralOffset))
-	binary.LittleEndian.PutUint16(eocd[20:22], uint16(len(comment)))
-	copy(eocd[22:], comment)
-	if _, err = result.Write(eocd); err != nil {
-		return err
-	}
 
 	out, err := os.OpenFile(output, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 	if err != nil {
@@ -179,8 +191,62 @@ func writePreservingArchive(source, output string, replacements map[string]iconF
 			_ = os.Remove(output)
 		}
 	}()
-	if _, err = out.Write(result.Bytes()); err != nil {
-		return fmt.Errorf("cannot write output: %w", err)
+
+	// Stream the output instead of building a second archive-sized byte buffer.
+	// The source still stays in memory for central-directory parsing, but peak RAM
+	// is reduced by roughly one full MRC on memory-constrained Android devices.
+	currentOffset := 0
+	writeChunk := func(chunk []byte) error {
+		written, writeErr := out.Write(chunk)
+		currentOffset += written
+		if writeErr != nil {
+			return writeErr
+		}
+		if written != len(chunk) {
+			return io.ErrShortWrite
+		}
+		return nil
+	}
+	if err = writeChunk(data[:centralOffset]); err != nil {
+		return fmt.Errorf("cannot preserve source entries: %w", err)
+	}
+
+	now := time.Now()
+	for _, name := range names {
+		icon := replacements[name]
+		local, central, buildErr := buildStoredEntry(name, icon.data, currentOffset, now)
+		if buildErr != nil {
+			return buildErr
+		}
+		if err = writeChunk(local); err != nil {
+			return fmt.Errorf("cannot write replacement %q: %w", name, err)
+		}
+		retained = append(retained, centralRecord{name: name, raw: central})
+	}
+
+	newCentralOffset := currentOffset
+	for _, record := range retained {
+		if err = writeChunk(record.raw); err != nil {
+			return fmt.Errorf("cannot write central directory: %w", err)
+		}
+	}
+	centralSize := currentOffset - newCentralOffset
+	if len(retained) > 65535 || newCentralOffset > int(^uint32(0)) || centralSize > int(^uint32(0)) {
+		return errors.New("ZIP64 output is not supported")
+	}
+	eocd := make([]byte, 22+len(comment))
+	binary.LittleEndian.PutUint32(eocd[0:4], 0x06054b50)
+	binary.LittleEndian.PutUint16(eocd[8:10], uint16(len(retained)))
+	binary.LittleEndian.PutUint16(eocd[10:12], uint16(len(retained)))
+	binary.LittleEndian.PutUint32(eocd[12:16], uint32(centralSize))
+	binary.LittleEndian.PutUint32(eocd[16:20], uint32(newCentralOffset))
+	binary.LittleEndian.PutUint16(eocd[20:22], uint16(len(comment)))
+	copy(eocd[22:], comment)
+	if err = writeChunk(eocd); err != nil {
+		return fmt.Errorf("cannot write ZIP end record: %w", err)
+	}
+	if currentOffset > maxSourceSize {
+		return errors.New("output archive exceeds 80MB limit")
 	}
 	if err = out.Sync(); err != nil {
 		return fmt.Errorf("cannot sync output: %w", err)
@@ -304,6 +370,9 @@ func loadIcons(dir string) ([]iconFile, error) {
 			return nil, fmt.Errorf("icon is not PNG: %q", entry.Name())
 		}
 		icons = append(icons, iconFile{name: entry.Name(), data: data})
+		if len(icons) > maxIconCount {
+			return nil, fmt.Errorf("icon count exceeds %d", maxIconCount)
+		}
 	}
 	if len(icons) == 0 {
 		return nil, errors.New("no staged PNG icons")
@@ -431,7 +500,7 @@ func safeEntryName(name string) bool {
 }
 
 func validPackage(value string) bool {
-	if value == "" {
+	if value == "" || len(value) > 255 || value[0] == '.' || value[0] == '-' {
 		return false
 	}
 	for _, char := range value {

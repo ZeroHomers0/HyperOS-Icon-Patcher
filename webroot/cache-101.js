@@ -4,6 +4,13 @@
   const quote = (value) => `'${String(value).replaceAll("'", "'\\''")}'`;
   let callbackIndex = 0;
   let themes = [];
+  let indexPromise = Promise.resolve(false);
+  let inspectGeneration = 0;
+  let scanPromise;
+  let patching = false;
+  let rescanOnResume = false;
+  let themeStoreWasHidden = false;
+  let themeStoreOpenedAt = 0;
 
   function notify(message) {
     if (window.HIPNotify) window.HIPNotify(message, true);
@@ -18,16 +25,18 @@
   function exec(operation, ...args) {
     return new Promise((resolve, reject) => {
       const callback = `hip_cache_${Date.now()}_${callbackIndex++}`;
+      const timeoutMs = operation === "fast_patch" ? 240000 : operation === "scan_cache" ? 90000 : 60000;
       const timer = setTimeout(() => {
         delete window[callback];
         reject(new Error("设备命令响应超时，请稍后重试"));
-      }, 60000);
+      }, timeoutMs);
       window[callback] = (errno, stdout, stderr) => {
         clearTimeout(timer);
         delete window[callback];
         const output = String(stdout || "").trim();
         if (errno !== 0 || output.startsWith("ERROR:")) {
-          reject(new Error(output.replace(/^ERROR:/, "") || stderr || `命令失败：${errno}`));
+          const errorLine = output.split(/\r?\n/).find((line) => line.startsWith("ERROR:"));
+          reject(new Error((errorLine || output).replace(/^ERROR:/, "") || stderr || `命令失败：${errno}`));
         } else resolve(output);
       };
       try {
@@ -50,111 +59,198 @@
     return themes.find((theme) => theme.name === byId("cacheSelect").value);
   }
 
-  function renderSelection() {
+  function renderSelection(detail = "") {
     const theme = selected();
-    const status = theme?.status === "changed" ? "主题商店已更新" : theme?.status === "patched" ? "已修补" : "未修改";
     byId("cacheSelectedInfo").textContent = theme
-      ? `主题：${theme.label || "未知主题"} · ${sizeText(theme.size)} · ${status} · ${new Date(theme.mtime * 1000).toLocaleString()}`
-      : "请选择一个主题商店图标主题";
+      ? `主题：${theme.label || "未知主题"} · ${sizeText(theme.size)} · ${new Date(theme.mtime * 1000).toLocaleString()}${detail}`
+      : "请选择一个待修补主题";
   }
 
-  async function scan(showError = false) {
-    const startedAt = Date.now();
-    byId("cacheReload").disabled = true;
-    try {
-      themes = (await exec("scan_cache")).split(/\r?\n/).filter(Boolean).map((line) => {
-        const [name, size, mtime, status, label] = line.split("\t");
-        return { name, size: Number(size), mtime: Number(mtime), status: status || "new", label: decodeLabel(label) };
-      });
-      byId("cacheSelect").replaceChildren(...themes.map((theme, index) => {
-        const option = document.createElement("option");
-        option.value = theme.name;
-        option.textContent = `${index === 0 ? "最近 · " : ""}${theme.label || "未知主题"} · ${theme.status === "patched" ? "已修补" : theme.status === "changed" ? "已更新" : "未修改"}`;
-        return option;
-      }));
-      const previous = localStorage.getItem("hip-last-theme") || localStorage.getItem("hip-last-component");
-      if (themes.some((theme) => theme.name === previous)) byId("cacheSelect").value = previous;
-      byId("cacheInfo").textContent = themes.length ? `发现 ${themes.length} 个主题` : "没有发现图标主题，请先从主题商店下载";
-      renderSelection();
-      log(`主题扫描完成 · ${themes.length} 个 · ${Date.now() - startedAt}ms`);
-    } catch (error) {
-      themes = [];
-      byId("cacheInfo").textContent = error.message;
-      if (showError) notify(`主题扫描失败：${error.message}`);
-    } finally {
-      byId("cacheReload").disabled = false;
-    }
+  function setStepState(id, text, state = "") {
+    const target = byId(id);
+    target.textContent = text;
+    target.className = `step-state${state ? ` ${state}` : ""}`;
   }
 
-  byId("cacheSelect").addEventListener("change", renderSelection);
-  byId("cacheReload").addEventListener("click", () => scan(true));
-  byId("cacheLoad").addEventListener("click", async () => {
+  function inspectSelectedTheme(showError = true) {
     const theme = selected();
-    if (!theme) return notify("请先选择一个主题");
-    const button = byId("cacheLoad");
-    button.disabled = true;
-    try {
-      const size = Number(await exec("prepare_cache", theme.name));
-      if (!Number.isFinite(size) || size <= 0) throw new Error("主题为空或无法读取");
-      if (size > 112e6) throw new Error("主题过大，超过 WebUI 安全读取限制");
-      const chunks = [];
-      const chunkSize = 240000;
-      for (let offset = 0; offset < size; offset += chunkSize) {
-        chunks.push(await exec("read_chunk", String(offset), String(Math.min(chunkSize, size - offset))));
-        button.textContent = `加载 ${Math.min(100, Math.round((offset + chunkSize) / size * 100))}%`;
-      }
-      window.HIP.loadCacheSource(chunks.join("").replace(/\s/g, ""), theme.label || theme.name, theme.name);
-      localStorage.setItem("hip-last-theme", theme.name);
-      byId("selectedTheme").innerHTML = `<strong>${theme.label || "未知主题"}</strong><br>状态：已加载为待修补主题`;
-      log(`已加载待修补主题：${theme.label || theme.name}`);
-    } catch (error) {
-      notify(`加载主题失败：${error.message}`);
-    } finally {
-      button.disabled = false;
-      button.textContent = "加载待修补主题";
+    const generation = ++inspectGeneration;
+    if (!theme) {
+      renderSelection();
+      indexPromise = Promise.resolve(false);
+      return indexPromise;
     }
+    localStorage.setItem("hip-last-theme", theme.name);
+    renderSelection(" · 正在读取索引…");
+    setStepState("themeStepState", "读取中", "is-busy");
+    setStepState("patchStepState", "尚未修补");
+    byId("patchResult").hidden = true;
+    indexPromise = (async () => {
+      try {
+        const index = JSON.parse(await exec("inspect_cache", theme.name));
+        if (generation !== inspectGeneration) return false;
+        if (!index?.prefix || !Number.isInteger(index.entryCount) || index.entryCount < 0) throw new Error("手机端返回的主题索引无效");
+        window.HIP.loadCacheIndex(index, theme.label || theme.name, theme.name);
+        renderSelection(` · ${index.entryCount} 个图标条目`);
+        setStepState("themeStepState", "已选择", "is-ready");
+        log(`已选择待修补主题：${theme.label || theme.name} · ${index.entryCount} 个图标条目`);
+        return true;
+      } catch (error) {
+        if (generation !== inspectGeneration) return false;
+        renderSelection(" · 索引读取失败");
+        setStepState("themeStepState", "读取失败", "is-error");
+        if (showError) notify(`读取主题失败：${error.message}`);
+        return false;
+      }
+    })();
+    return indexPromise;
+  }
+
+  async function scan() {
+    if (scanPromise) return scanPromise;
+    scanPromise = (async () => {
+      const startedAt = Date.now();
+      setStepState("themeStepState", "扫描中", "is-busy");
+      try {
+        themes = (await exec("scan_cache")).split(/\r?\n/).filter(Boolean).map((line) => {
+          const [name, size, mtime, label] = line.split("\t");
+          return { name, size: Number(size), mtime: Number(mtime), label: decodeLabel(label) };
+        });
+        const labelCounts = new Map();
+        for (const theme of themes) {
+          const label = theme.label || "未知主题";
+          labelCounts.set(label, (labelCounts.get(label) || 0) + 1);
+        }
+        byId("cacheSelect").replaceChildren(...themes.map((theme, index) => {
+          const option = document.createElement("option");
+          const label = theme.label || "未知主题";
+          const duplicate = labelCounts.get(label) > 1;
+          const time = new Date(theme.mtime * 1000).toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+          const suffix = theme.name.replace(/\.mrc$/i, "").slice(-6);
+          option.value = theme.name;
+          option.textContent = `${index === 0 ? "最近 · " : ""}${label}${duplicate ? ` · ${time} · ${suffix}` : ""}`;
+          return option;
+        }));
+        const previous = localStorage.getItem("hip-last-theme") || localStorage.getItem("hip-last-component");
+        if (themes.some((theme) => theme.name === previous)) byId("cacheSelect").value = previous;
+        byId("cacheInfo").textContent = themes.length ? `发现 ${themes.length} 个主题` : "没有发现图标主题，请先从主题商店下载";
+        log(`主题扫描完成 · ${themes.length} 个 · ${Date.now() - startedAt}ms`);
+        await inspectSelectedTheme(false);
+      } catch (error) {
+        themes = [];
+        byId("cacheInfo").textContent = error.message;
+        renderSelection();
+        setStepState("themeStepState", "扫描失败", "is-error");
+        notify(`主题扫描失败：${error.message}`);
+      }
+    })();
+    try { return await scanPromise; }
+    finally { scanPromise = undefined; }
+  }
+
+  byId("cacheSelect").addEventListener("change", () => inspectSelectedTheme(true));
+  window.addEventListener("hip-patch-input-changed", () => {
+    setStepState("patchStepState", "尚未修补");
+    byId("patchResult").hidden = true;
   });
+  document.querySelectorAll('input[name="patchMode"]').forEach((input) =>
+    input.addEventListener("change", () => window.dispatchEvent(new Event("hip-patch-input-changed"))));
 
   byId("cachePatch").addEventListener("click", async () => {
+    // 从点击开始锁定；后端 fast_patch 还会用设备端互斥锁防住多 WebUI 并发。
+    if (patching) return;
     const theme = selected();
-    if (!theme) return notify("请先选择并加载待修补主题");
-    const flow = window.HIP?.flowStatus?.();
-    if (!flow?.sourceLoaded || flow.sourceName !== theme.name) return notify("请先加载当前选中的待修补主题");
-    const identity = window.HIP?.themeIdentity?.();
-    const prefix = window.HIP?.drawablePrefix?.();
-    if (!identity || !prefix) return notify("主题信息尚未就绪，请重新加载主题");
+    if (!theme) return notify("请先选择待修补主题");
     const button = byId("cachePatch");
+    patching = true;
     button.disabled = true;
     button.textContent = "正在修补…";
+    setStepState("patchStepState", "处理中", "is-busy");
+    byId("patchResult").hidden = true;
     try {
-      const build = (await exec("fast_merge", theme.name, prefix, identity)).split(":");
-      const patch = await exec("patch_cache", theme.name);
-      log(`修补完成：处理 ${Number(build[1] || 0)} 个自定义图标 · 写入 ${Number(build[2] || 0)} 个主题条目 · 备份：${patch.replace(/^OK:/, "")}`);
+      if (!await indexPromise) {
+        setStepState("patchStepState", "等待主题", "is-error");
+        notify("当前主题索引尚未读取成功，请重新选择主题");
+        return;
+      }
+      const flow = window.HIP?.flowStatus?.();
+      if (!flow?.sourceLoaded || flow.sourceName !== theme.name) {
+        setStepState("patchStepState", "等待主题", "is-error");
+        notify("当前主题信息尚未就绪，请重新选择主题");
+        return;
+      }
+      const groupId = window.HIPGroups?.selectedId?.();
+      if (!groupId) {
+        setStepState("patchStepState", "等待修补组", "is-error");
+        notify("请先创建并选择一个修补组");
+        return;
+      }
+      const groupName = window.HIPGroups?.selectedName?.() || "当前修补组";
+      const groupCount = window.HIPGroups?.selectedCount?.() || 0;
+      const mode = document.querySelector('input[name="patchMode"]:checked')?.value || "missing";
+      if (mode === "replace" && !confirm(`将使用修补组“${groupName}”修补主题“${theme.label || theme.name}”。\n${groupCount} 个组内图标中的同名图标将覆盖主题原图，是否继续？`)) {
+        setStepState("patchStepState", "已取消");
+        return;
+      }
+      const prefix = window.HIP?.drawablePrefix?.();
+      if (!prefix) {
+        setStepState("patchStepState", "主题无效", "is-error");
+        notify("主题图标目录尚未识别，请重新选择主题");
+        return;
+      }
+      const operationLines = (await exec("fast_patch", theme.name, prefix, groupId, mode)).split(/\r?\n/);
+      const build = operationLines[0].split(":");
+      const iconCount = Number(build[1] || 0);
+      const entryCount = Number(build[2] || 0);
+      const modeText = mode === "missing" ? "仅补全缺失图标" : "覆盖同名图标";
+      if (entryCount === 0) {
+        await exec("clear_transfer").catch(() => {});
+        byId("patchResult").textContent = `无需修补：“${theme.label || theme.name}”已经包含修补组“${groupName}”中的全部图标。`;
+        byId("patchResult").hidden = false;
+        setStepState("patchStepState", "无需修补", "is-ready");
+        log(`无需修补：${theme.label || theme.name} · ${groupName} · 0 个新增条目`);
+        window.HIPToast?.("当前主题已包含全部组内图标");
+        return;
+      }
+      const patch = operationLines[1] || "OK";
+      byId("patchResult").textContent = `已使用“${groupName}”修补主题“${theme.label || theme.name}”｜${modeText}｜处理 ${iconCount} 个｜写入 ${entryCount} 个。`;
+      byId("patchResult").hidden = false;
+      setStepState("patchStepState", "已完成", "is-ready");
+      log(`修补完成：处理 ${iconCount} 个自定义图标 · 写入 ${entryCount} 个主题条目 · ${patch.replace(/^OK:/, "")}`);
       if (window.HIPToast) window.HIPToast("主题修补完成");
-      await scan();
     } catch (error) {
+      setStepState("patchStepState", "修补失败", "is-error");
       notify(`修补主题失败：${error.message}`);
     } finally {
+      patching = false;
       button.disabled = false;
       button.textContent = "修补主题";
     }
   });
 
-  byId("cacheRestore").addEventListener("click", async () => {
-    const theme = selected();
-    if (!theme) return notify("请先选择要恢复的主题");
-    if (!confirm(`恢复“${theme.label || theme.name}”最近一次备份？`)) return;
-    try {
-      const result = await exec("restore_cache", theme.name);
-      log(`已恢复主题：${result.replace(/^OK:/, "")}`);
-      await scan();
-    } catch (error) { notify(`恢复失败：${error.message}`); }
+  byId("cacheOpen").addEventListener("click", async () => {
+    rescanOnResume = true;
+    themeStoreWasHidden = false;
+    themeStoreOpenedAt = Date.now();
+    try { await exec("open_theme_manager"); log("已请求打开主题商店"); }
+    catch (error) {
+      rescanOnResume = false;
+      notify(`无法打开主题商店：${error.message}`);
+    }
   });
 
-  byId("cacheOpen").addEventListener("click", async () => {
-    try { await exec("open_theme_manager"); log("已请求打开主题商店"); }
-    catch (error) { notify(`无法打开主题商店：${error.message}`); }
-  });
+  async function scanAfterThemeStore() {
+    if (!rescanOnResume) return;
+    if (document.hidden) {
+      themeStoreWasHidden = true;
+      return;
+    }
+    if (!themeStoreWasHidden && Date.now() - themeStoreOpenedAt < 1000) return;
+    rescanOnResume = false;
+    await scan();
+  }
+  document.addEventListener("visibilitychange", scanAfterThemeStore);
+  window.addEventListener("focus", scanAfterThemeStore);
 
   setTimeout(scan, 800);
 })();

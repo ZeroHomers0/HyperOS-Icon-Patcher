@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#111318">
   <title>HyperOS 图标补全器</title>
-  <link rel="stylesheet" href="style-110.css?v=132">
+  <link rel="stylesheet" href="style-110.css?v=143">
 </head>
 <body>
   <header>
@@ -25,54 +25,85 @@
       <summary>使用方法与注意事项</summary>
       <ol>
         <li>先在小米主题商店下载一个不使用的图标主题。</li>
-        <li>在“主题商店图标源”中选择主题，并加载为待修补主题。</li>
-        <li>在“待修补图标”中选择应用和 PNG 图标，然后添加为自定义图标。</li>
-        <li>点击“修补主题”，将当前主题的全部自定义图标写入主题。</li>
+        <li>在“选择待修补主题”中选择一个主题，模块会自动读取手机端主题索引。</li>
+        <li>创建或选择修补组；修补组与主题文件名无关，可以重复用于重新下载的主题。</li>
+        <li>在“待修补图标”中选择应用和 PNG 图标，将它们添加到当前修补组。</li>
+        <li>选择“仅补全缺失图标”或“覆盖同名图标”，再点击“修补主题”。</li>
         <li>打开主题商店，在“我的／图标”中应用该占位主题。</li>
         <li>如果桌面图标没有立即变化，点击“重启系统桌面”；系统桌面会短暂重启。</li>
       </ol>
-      <p>仅支持 PNG。模块会自动调整尺寸，确保每个新增图标不超过 50KB。写入前会自动备份。</p>
+      <p>仅支持 PNG。模块会自动调整尺寸，确保每个新增图标不超过 50KB。写入异常时会自动回滚。</p>
     </details>
-
-    <section class="card">
-      <div class="section-title">
-        <div>
-          <h2>待修补图标</h2>
-          <p class="muted">准备添加到当前主题的图标</p>
-        </div>
-        <button id="openAppPicker" class="compact-button">选择应用</button>
-      </div>
-      <div id="selectionEmpty" class="empty">点击右上角“选择应用”添加图标</div>
-      <div id="selectionList" class="selection-list"></div>
-      <button id="buildBtn" class="primary full-button">添加为自定义图标</button>
-    </section>
 
     <section class="card cache-card">
       <div class="section-title">
         <div>
-          <h2>主题商店图标源</h2>
-          <p id="cacheInfo" class="muted">扫描主题商店已下载的图标主题</p>
-        </div>
-        <div class="title-actions">
-          <button id="openRecipeManager" class="compact-button">管理自定义图标</button>
-          <button id="cacheReload" class="icon-button" title="刷新">↻</button>
+          <span class="step-label">步骤 1 <span id="themeStepState" class="step-state">扫描中</span></span>
+          <h2>选择待修补主题</h2>
+          <p id="cacheInfo" class="muted">正在读取已下载的图标主题</p>
         </div>
       </div>
       <select id="cacheSelect" class="search">
         <option value="">尚未扫描</option>
       </select>
       <p id="cacheSelectedInfo" class="hint">请先在小米主题商店下载一个不使用的图标主题，作为占位主题。</p>
-      <div id="selectedTheme" class="theme-detail">尚未加载主题</div>
-      <div class="actions vertical cache-actions">
-        <button id="cacheLoad">加载待修补主题</button>
-        <button id="cachePatch" class="primary">修补主题</button>
-        <button id="cacheRestore" class="danger">恢复该主题最近备份</button>
+    </section>
+
+    <section class="card">
+      <div class="section-title">
+        <div>
+          <span class="step-label">步骤 2 <span id="groupStepState" class="step-state">未选择</span></span>
+          <h2>选择修补组</h2>
+          <p id="groupInfo" class="muted">选择要应用到主题的图标集合</p>
+        </div>
+        <button id="openRecipeManager" class="section-action-button">管理修补组</button>
       </div>
+      <select id="groupSelect" class="search">
+        <option value="">尚未创建修补组</option>
+      </select>
+    </section>
+
+    <section class="card">
+      <div class="section-title">
+        <div>
+          <span class="step-label">步骤 3 <span id="iconsStepState" class="step-state">0 个待添加</span></span>
+          <h2>待修补图标</h2>
+          <p class="muted">添加到当前修补组的图标</p>
+        </div>
+        <button id="openAppPicker" class="section-action-button">选择应用</button>
+      </div>
+      <div class="selection-toolbar">
+        <span id="activeGroupChip" class="theme-chip" hidden>尚未选择修补组</span>
+        <span id="selectionCount" class="muted selection-count">已选择 0 个</span>
+        <button id="clearSelection" class="compact-button danger" disabled>清空</button>
+      </div>
+      <div id="selectionEmpty" class="empty">点击右上角“选择应用”添加图标</div>
+      <div id="selectionList" class="selection-list"></div>
+      <button id="buildBtn" class="full-button selection-submit">添加到修补组</button>
+    </section>
+
+    <section class="card action-card">
+      <span class="step-label">步骤 4 <span id="patchStepState" class="step-state">尚未修补</span></span>
+      <h2>修补主题</h2>
+      <div class="mode-picker" role="radiogroup" aria-label="修补模式">
+        <label class="mode-option">
+          <input type="radio" name="patchMode" value="missing" checked>
+          <span><strong>仅补全缺失图标</strong><small>保留主题已经适配的图标</small></span>
+        </label>
+        <label class="mode-option">
+          <input type="radio" name="patchMode" value="replace">
+          <span><strong>覆盖同名图标</strong><small>优先使用修补组中的图标</small></span>
+        </label>
+      </div>
+      <div class="actions vertical">
+        <button id="cachePatch" class="primary">修补主题</button>
+      </div>
+      <div id="patchResult" class="result-card" hidden></div>
       <div class="utility-actions">
         <button id="cacheOpen">打开主题商店</button>
         <button id="refreshLauncher">重启系统桌面</button>
       </div>
-      <p class="hint">操作顺序：加载待修补主题 → 添加自定义图标 → 修补主题 → 在主题商店“我的／图标”中应用主题。</p>
+      <p class="hint">操作顺序：选择主题 → 选择修补组 → 添加自定义图标 → 选择模式并修补主题。</p>
     </section>
 
     <dialog id="appPicker" class="sheet">
@@ -89,26 +120,35 @@
 
     <dialog id="recipeManager" class="sheet">
       <div class="sheet-header">
-        <div><h2>管理自定义图标</h2><p id="recipeInfo" class="muted">请先加载待修补主题</p></div>
+        <div><h2>管理修补组</h2><p id="recipeInfo" class="muted">创建或选择修补组</p></div>
         <button class="icon-button close-sheet" data-close="recipeManager" aria-label="关闭">×</button>
       </div>
+      <div class="group-create">
+        <input id="newGroupName" class="search" maxlength="40" placeholder="新修补组名称（最多 40 个字符）">
+        <button id="groupCreate" class="primary compact-button">创建</button>
+      </div>
+      <div id="groupList" class="group-list"></div>
+      <h3 class="subheading">组内自定义图标</h3>
       <div class="batch-bar">
         <label><input id="recipeSelectAll" type="checkbox"> 全选</label>
         <button id="recipeBatchDelete" class="danger compact-button" disabled>删除所选</button>
         <button id="recipeReload" class="icon-button" title="刷新">↻</button>
       </div>
-      <div id="recipeEmpty" class="empty">当前主题尚无自定义图标</div>
+      <div id="recipeEmpty" class="empty">当前修补组尚无自定义图标</div>
       <div id="recipeList" class="recipe-list"></div>
     </dialog>
 
-    <pre id="log" class="log">等待操作</pre>
+    <details id="logPanel" class="log-panel">
+      <summary>运行日志</summary>
+      <pre id="log" class="log">等待操作</pre>
+    </details>
   </main>
 
   <input id="iconInput" type="file" accept="image/png,.png" hidden>
-  <script src="ui-101.js?v=132"></script>
-  <script type="module" src="app-121.js?v=132"></script>
-  <script type="module" src="cache-101.js?v=132"></script>
-  <script type="module" src="recipe-123.js?v=132"></script>
+  <script src="ui-101.js?v=143"></script>
+  <script type="module" src="app-121.js?v=143"></script>
+  <script type="module" src="cache-101.js?v=143"></script>
+  <script type="module" src="recipe-123.js?v=143"></script>
   <script src="theme-094.js"></script>
 </body>
 </html>
