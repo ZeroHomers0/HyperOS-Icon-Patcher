@@ -513,6 +513,30 @@ open_theme_manager() {
 
 # ---------- 修补组持久数据 ----------
 
+group_initialize() {
+  MARKER="$DATA/groups-initialized"
+  [ -f "$MARKER" ] && {
+    echo "OK"
+    return
+  }
+  acquire_operation_lock "修补组初始化" || exit $?
+  [ -f "$MARKER" ] && {
+    echo "OK"
+    return
+  }
+  GROUP_COUNT=$(find "$PATCH_GROUPS" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | "$BB" wc -l | "$BB" tr -d ' ')
+  RESULT="OK"
+  if [ "${GROUP_COUNT:-0}" -eq 0 ]; then
+    RESULT=$(group_create "默认修补组") || exit $?
+  fi
+  printf '1\n' > "$MARKER.next" && mv -f "$MARKER.next" "$MARKER" || {
+    rm -f "$MARKER.next"
+    echo "ERROR:无法保存首次初始化状态"
+    exit 3
+  }
+  echo "$RESULT"
+}
+
 group_create() {
   valid_group_name "$1" || {
     echo "ERROR:修补组名称不能为空、最多 120 字节（约 40 个中文），且首尾不能是空格"
@@ -1041,18 +1065,13 @@ maintenance() {
   echo "OK:cleaned=$CLEANED|recovered=$RECOVERED|data_kb=${DATA_KB:-0}"
 }
 
-refresh_launcher() {
-  am force-stop com.miui.home 2>/dev/null
-  am force-stop com.mi.android.globallauncher 2>/dev/null
-  echo "OK"
-}
-
 case "$1" in
   list_apps) list_apps ;;
   scan_cache) scan_cache ;;
   inspect_cache) inspect_cache "$2" ;;
   fast_patch) fast_patch "$2" "$3" "$4" "$5" ;;
   open_theme_manager) open_theme_manager ;;
+  group_initialize) group_initialize ;;
   group_create) group_create "$2" ;;
   group_list) group_list ;;
   group_rename) group_rename "$2" "$3" ;;
@@ -1070,6 +1089,5 @@ case "$1" in
   clear_transfer) clear_transfer ;;
   clear_recipe_stage) clear_recipe_stage ;;
   maintenance) maintenance ;;
-  refresh) refresh_launcher ;;
   *) echo "ERROR:未知操作"; exit 2 ;;
 esac

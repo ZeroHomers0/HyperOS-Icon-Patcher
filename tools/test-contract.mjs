@@ -48,6 +48,23 @@ const appSource = read("webroot/app-121.js");
 if (!appSource.includes("const searching = e.length > 0") || !appSource.includes("&& !searching")) {
   throw new Error("search-result icon loading contract is missing");
 }
+if (!["已添加", "本次已选择", "将替换"].every((label) => appSource.includes(label)) || !appSource.includes('f("recipe_list"')) {
+  throw new Error("existing group-icon marker contract is missing");
+}
+const groupSource = read("webroot/recipe-123.js");
+if (!groupSource.includes('exec("group_initialize"') || !backend.includes('group_create "默认修补组"')) {
+  throw new Error("default patch-group contract is missing");
+}
+const cacheSource = read("webroot/cache-101.js");
+for (const label of ["请选择待修补主题", "请选择修补组", "请先添加图标", "打开主题商店"]) {
+  if (!cacheSource.includes(label)) throw new Error(`primary-action state is missing: ${label}`);
+}
+for (const sharedModule of ["webroot/backend-client.js", "webroot/flow-state.js"]) {
+  if (!fs.existsSync(sharedModule)) throw new Error(`missing shared WebUI module ${sharedModule}`);
+}
+if (!read("webroot/backend-client.js").includes("export function execBackend")) {
+  throw new Error("shared backend client contract is missing");
+}
 
 const cases = new Set([...backend.matchAll(/^  ([a-z_]+)\)/gm)].map((match) => match[1]));
 const operations = new Set();
@@ -67,7 +84,7 @@ for (const operation of operations) {
   if (!cases.has(operation)) throw new Error(`backend does not dispatch ${operation}`);
 }
 
-for (const removed of ["fast_build", "prepare_cache", "stream_cache", "patch_cache)", "fast_merge)"]) {
+for (const removed of ["fast_build", "prepare_cache", "stream_cache", "patch_cache)", "fast_merge)", "refresh)"]) {
   if (backend.includes(removed)) throw new Error(`obsolete public backend operation remains: ${removed}`);
 }
 if (!backend.includes("acquire_operation_lock") || !backend.includes("fast_patch)")) {

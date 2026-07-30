@@ -1,13 +1,16 @@
+import { execBackend } from "./backend-client.js?v=150";
+import { getFlowState, subscribeFlowState, updateFlowState } from "./flow-state.js?v=150";
+
 (() => {
   const byId = (id) => document.getElementById(id);
-  const script = "/data/adb/modules/hyper_icon_patcher/scripts/backend.sh";
-  const quote = (value) => `'${String(value).replaceAll("'", "'\\''")}'`;
-  let callbackIndex = 0;
+  const exec = execBackend;
   let themes = [];
   let indexPromise = Promise.resolve(false);
   let inspectGeneration = 0;
   let scanPromise;
   let patching = false;
+  let indexReady = false;
+  let patchCompleted = false;
   let rescanOnResume = false;
   let themeStoreWasHidden = false;
   let themeStoreOpenedAt = 0;
@@ -20,33 +23,6 @@
   function log(message) {
     const target = byId("log");
     target.textContent = `[${new Date().toLocaleTimeString()}] ${message}\n${target.textContent}`.slice(0, 6000);
-  }
-
-  function exec(operation, ...args) {
-    return new Promise((resolve, reject) => {
-      const callback = `hip_cache_${Date.now()}_${callbackIndex++}`;
-      const timeoutMs = operation === "fast_patch" ? 240000 : operation === "scan_cache" ? 90000 : 60000;
-      const timer = setTimeout(() => {
-        delete window[callback];
-        reject(new Error("设备命令响应超时，请稍后重试"));
-      }, timeoutMs);
-      window[callback] = (errno, stdout, stderr) => {
-        clearTimeout(timer);
-        delete window[callback];
-        const output = String(stdout || "").trim();
-        if (errno !== 0 || output.startsWith("ERROR:")) {
-          const errorLine = output.split(/\r?\n/).find((line) => line.startsWith("ERROR:"));
-          reject(new Error((errorLine || output).replace(/^ERROR:/, "") || stderr || `命令失败：${errno}`));
-        } else resolve(output);
-      };
-      try {
-        ksu.exec(["sh", script, operation, ...args.map(quote)].join(" "), "{}", callback);
-      } catch (error) {
-        clearTimeout(timer);
-        delete window[callback];
-        reject(error);
-      }
-    });
   }
 
   const sizeText = (size) => size >= 1048576 ? `${(size / 1048576).toFixed(1)} MB` : `${Math.round(size / 1024)} KB`;
@@ -72,16 +48,64 @@
     target.className = `step-state${state ? ` ${state}` : ""}`;
   }
 
+  function updatePrimaryAction() {
+    const button = byId("cachePatch");
+    if (patching) {
+      button.disabled = true;
+      button.textContent = "正在修补…";
+      return;
+    }
+    if (patchCompleted) {
+      button.disabled = false;
+      button.textContent = "打开主题商店";
+      return;
+    }
+    if (!selected()) {
+      button.disabled = true;
+      button.textContent = "请选择待修补主题";
+      return;
+    }
+    if (!indexReady) {
+      button.disabled = true;
+      button.textContent = "正在读取主题…";
+      return;
+    }
+    const flow = getFlowState();
+    if (!flow.group?.id) {
+      button.disabled = true;
+      button.textContent = "请选择修补组";
+      return;
+    }
+    if (!flow.group.count) {
+      button.disabled = true;
+      button.textContent = "请先添加图标";
+      return;
+    }
+    button.disabled = false;
+    button.textContent = "修补主题";
+  }
+
   function inspectSelectedTheme(showError = true) {
     const theme = selected();
     const generation = ++inspectGeneration;
     if (!theme) {
       renderSelection();
+      indexReady = false;
+      updateFlowState({ theme: null, themeReady: false, patchStatus: "idle" });
       indexPromise = Promise.resolve(false);
+      updatePrimaryAction();
       return indexPromise;
     }
     localStorage.setItem("hip-last-theme", theme.name);
     renderSelection(" · 正在读取索引…");
+    indexReady = false;
+    patchCompleted = false;
+    updateFlowState({
+      theme: { name: theme.name, label: theme.label || theme.name },
+      themeReady: false,
+      patchStatus: "idle"
+    });
+    updatePrimaryAction();
     setStepState("themeStepState", "读取中", "is-busy");
     setStepState("patchStepState", "尚未修补");
     byId("patchResult").hidden = true;
@@ -93,12 +117,18 @@
         window.HIP.loadCacheIndex(index, theme.label || theme.name, theme.name);
         renderSelection(` · ${index.entryCount} 个图标条目`);
         setStepState("themeStepState", "已选择", "is-ready");
+        indexReady = true;
+        updateFlowState({ themeReady: true });
+        updatePrimaryAction();
         log(`已选择待修补主题：${theme.label || theme.name} · ${index.entryCount} 个图标条目`);
         return true;
       } catch (error) {
         if (generation !== inspectGeneration) return false;
         renderSelection(" · 索引读取失败");
         setStepState("themeStepState", "读取失败", "is-error");
+        indexReady = false;
+        updateFlowState({ themeReady: false });
+        updatePrimaryAction();
         if (showError) notify(`读取主题失败：${error.message}`);
         return false;
       }
@@ -138,9 +168,13 @@
         await inspectSelectedTheme(false);
       } catch (error) {
         themes = [];
+        indexReady = false;
+        patchCompleted = false;
+        updateFlowState({ theme: null, themeReady: false, patchStatus: "error" });
         byId("cacheInfo").textContent = error.message;
         renderSelection();
         setStepState("themeStepState", "扫描失败", "is-error");
+        updatePrimaryAction();
         notify(`主题扫描失败：${error.message}`);
       }
     })();
@@ -150,21 +184,32 @@
 
   byId("cacheSelect").addEventListener("change", () => inspectSelectedTheme(true));
   window.addEventListener("hip-patch-input-changed", () => {
+    patchCompleted = false;
+    updateFlowState({ patchStatus: "idle" });
     setStepState("patchStepState", "尚未修补");
     byId("patchResult").hidden = true;
+    updatePrimaryAction();
   });
+  window.addEventListener("hip-group-changed", updatePrimaryAction);
   document.querySelectorAll('input[name="patchMode"]').forEach((input) =>
-    input.addEventListener("change", () => window.dispatchEvent(new Event("hip-patch-input-changed"))));
+    input.addEventListener("change", () => {
+      updateFlowState({ patchMode: input.value });
+      window.dispatchEvent(new Event("hip-patch-input-changed"));
+    }));
 
   byId("cachePatch").addEventListener("click", async () => {
     // 从点击开始锁定；后端 fast_patch 还会用设备端互斥锁防住多 WebUI 并发。
     if (patching) return;
+    if (patchCompleted) {
+      byId("cacheOpen").click();
+      return;
+    }
     const theme = selected();
     if (!theme) return notify("请先选择待修补主题");
     const button = byId("cachePatch");
     patching = true;
-    button.disabled = true;
-    button.textContent = "正在修补…";
+    updateFlowState({ patchStatus: "patching" });
+    updatePrimaryAction();
     setStepState("patchStepState", "处理中", "is-busy");
     byId("patchResult").hidden = true;
     try {
@@ -187,8 +232,15 @@
       }
       const groupName = window.HIPGroups?.selectedName?.() || "当前修补组";
       const groupCount = window.HIPGroups?.selectedCount?.() || 0;
+      if (!groupCount) {
+        setStepState("patchStepState", "等待图标", "is-error");
+        notify("当前修补组没有图标，请先添加自定义图标");
+        return;
+      }
       const mode = document.querySelector('input[name="patchMode"]:checked')?.value || "missing";
-      if (mode === "replace" && !confirm(`将使用修补组“${groupName}”修补主题“${theme.label || theme.name}”。\n${groupCount} 个组内图标中的同名图标将覆盖主题原图，是否继续？`)) {
+      const modeText = mode === "missing" ? "仅补全缺失图标" : "覆盖同名图标";
+      const warning = mode === "replace" ? "\n\n注意：主题中的同名图标将被覆盖。" : "";
+      if (!confirm(`请确认本次修补：\n\n主题：${theme.label || theme.name}\n修补组：${groupName}\n模式：${modeText}\n组内图标：${groupCount} 个${warning}`)) {
         setStepState("patchStepState", "已取消");
         return;
       }
@@ -202,12 +254,13 @@
       const build = operationLines[0].split(":");
       const iconCount = Number(build[1] || 0);
       const entryCount = Number(build[2] || 0);
-      const modeText = mode === "missing" ? "仅补全缺失图标" : "覆盖同名图标";
       if (entryCount === 0) {
         await exec("clear_transfer").catch(() => {});
         byId("patchResult").textContent = `无需修补：“${theme.label || theme.name}”已经包含修补组“${groupName}”中的全部图标。`;
         byId("patchResult").hidden = false;
         setStepState("patchStepState", "无需修补", "is-ready");
+        patchCompleted = true;
+        updateFlowState({ patchStatus: "complete" });
         log(`无需修补：${theme.label || theme.name} · ${groupName} · 0 个新增条目`);
         window.HIPToast?.("当前主题已包含全部组内图标");
         return;
@@ -216,15 +269,18 @@
       byId("patchResult").textContent = `已使用“${groupName}”修补主题“${theme.label || theme.name}”｜${modeText}｜处理 ${iconCount} 个｜写入 ${entryCount} 个。`;
       byId("patchResult").hidden = false;
       setStepState("patchStepState", "已完成", "is-ready");
+      patchCompleted = true;
+      updateFlowState({ patchStatus: "complete" });
       log(`修补完成：处理 ${iconCount} 个自定义图标 · 写入 ${entryCount} 个主题条目 · ${patch.replace(/^OK:/, "")}`);
       if (window.HIPToast) window.HIPToast("主题修补完成");
     } catch (error) {
+      patchCompleted = false;
+      updateFlowState({ patchStatus: "error" });
       setStepState("patchStepState", "修补失败", "is-error");
       notify(`修补主题失败：${error.message}`);
     } finally {
       patching = false;
-      button.disabled = false;
-      button.textContent = "修补主题";
+      updatePrimaryAction();
     }
   });
 
@@ -253,4 +309,6 @@
   window.addEventListener("focus", scanAfterThemeStore);
 
   setTimeout(scan, 800);
+  subscribeFlowState(updatePrimaryAction);
+  updatePrimaryAction();
 })();

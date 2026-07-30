@@ -45,7 +45,6 @@ pack-module.bat -RebuildHelper
 - 仅支持 Android ARM64，使用模块内置 `hipzip-arm64` 在手机端索引并快速生成主题
 - 扫描主题商店 `.data/content/icons/*.mrc` 图标主题
 - 按相同 UUID 匹配 `meta/icons/*.mrm`，优先读取 JSON 的 `titles.zh_CN`，并兼容 `description.xml`
-- 在 WebUI 中刷新系统桌面，让新图标立即重新载入
 - 选择主题时只读取 ZIP 中央目录索引，不向 WebUI 传输完整 MRC
 - 使用临时回滚文件安全修改商店图标源，再由主题商店正式应用
 - 校验错误通过 Toast 和日志同时提示

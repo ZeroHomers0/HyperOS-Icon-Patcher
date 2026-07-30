@@ -191,6 +191,11 @@ input[type=file] { display: none; }
 }
 .app-icon { width: 40px; height: 40px; flex: 0 0 40px; border-radius: 11px; object-fit: cover; }
 .app-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.app-status {
+  flex: 0 0 auto; padding: 4px 7px; border-radius: 999px;
+  background: rgba(45,180,105,.13); color: #64dfa0; font-size: 10px; font-weight: 750;
+}
+.app-status.is-pending { background: rgba(255,105,0,.13); color: var(--accent); }
 .selection { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .selection-list { max-height: 345px; overflow-y: auto; overscroll-behavior: contain; }
 .selection-list .selection:last-child { border-bottom: 0; }

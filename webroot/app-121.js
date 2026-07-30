@@ -1,46 +1,8 @@
+import { execBackend } from "./backend-client.js?v=150";
+import { updateFlowState } from "./flow-state.js?v=150";
+
 (() => {
   (() => {
-    var j = 0;
-    function T(e) {
-      return `${e}_callback_${Date.now()}_${j++}`;
-    }
-    function z(e, t) {
-      return typeof t > "u" && (t = {}), new Promise((u, n) => {
-        let r = T("exec");
-        let timeout = setTimeout(() => {
-          l(r);
-          n(new Error("设备命令响应超时，请稍后重试"));
-        }, 6e4);
-        window[r] = (a, o, s) => {
-          clearTimeout(timeout), u({ errno: a, stdout: o, stderr: s }), l(r);
-        };
-        function l(a) {
-          clearTimeout(timeout);
-          delete window[a];
-        }
-        try {
-          ksu.exec(e, JSON.stringify(t), r);
-        } catch (a) {
-          n(a), l(r);
-        }
-      });
-    }
-    function d() {
-      this.listeners = {};
-    }
-    d.prototype.on = function(e, t) {
-      this.listeners[e] || (this.listeners[e] = []), this.listeners[e].push(t);
-    }, d.prototype.emit = function(e, ...t) {
-      this.listeners[e] && this.listeners[e].forEach((u) => u(...t));
-    };
-    function S() {
-      this.listeners = {}, this.stdin = new d(), this.stdout = new d(), this.stderr = new d();
-    }
-    S.prototype.on = function(e, t) {
-      this.listeners[e] || (this.listeners[e] = []), this.listeners[e].push(t);
-    }, S.prototype.emit = function(e, ...t) {
-      this.listeners[e] && this.listeners[e].forEach((u) => u(...t));
-    };
     function H(e) {
       try {
         return typeof e != "string" && (e = JSON.stringify(e)), JSON.parse(ksu.getPackagesInfo(e));
@@ -55,12 +17,7 @@
         return [];
       }
     }
-    var q = "/data/adb/modules/hyper_icon_patcher/scripts/backend.sh", c = (e) => document.getElementById(e), i = { apps: [], selected: /* @__PURE__ */ new Map(), sourcePrefix: "", sourceName: "" }, K = (e) => `'${String(e).replaceAll("'", "'\\''")}'`;
-    async function f(e, ...t) {
-      let u = await z(["sh", q, e, ...t.map(K)].join(" ")), n = String(u.stdout || "").trim();
-      if (u.errno !== 0 || n.startsWith("ERROR:")) throw new Error(n || u.stderr || `\u547D\u4EE4\u5931\u8D25\uFF1A${u.errno}`);
-      return n;
-    }
+    var c = (e) => document.getElementById(e), i = { apps: [], selected: /* @__PURE__ */ new Map(), groupPackages: /* @__PURE__ */ new Set(), sourcePrefix: "", sourceName: "" }, f = execBackend;
     function h(e) {
       let t = c("log");
       t.textContent = `[${(/* @__PURE__ */ new Date()).toLocaleTimeString()}] ${e}
@@ -133,6 +90,20 @@ ${t.textContent}`.slice(0, 6e3);
     }
     async function Y(e, t) {
       await uploadInChunks("recipe_upload_begin", "recipe_upload_chunk", "recipe_upload_commit", e, t);
+    }
+    async function refreshGroupPackages() {
+      const groupId = window.HIPGroups?.selectedId?.();
+      if (!groupId) {
+        i.groupPackages.clear();
+        if (c("appPicker").open) O();
+        return;
+      }
+      try {
+        i.groupPackages = new Set((await f("recipe_list", groupId)).split(/\r?\n/).filter(validPackageName));
+      } catch {
+        i.groupPackages.clear();
+      }
+      if (c("appPicker").open) O();
     }
     const APP_CACHE_KEY = "hip-user-apps-v2";
     const APP_CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1e3;
@@ -239,6 +210,20 @@ ${t.textContent}`.slice(0, 6e3);
         A(c("reloadApps"), false);
       }
     }
+    function updateAppStatus(button, packageName) {
+      button.querySelector(".app-status")?.remove();
+      const pending = i.selected.has(packageName);
+      const saved = i.groupPackages.has(packageName);
+      if (!pending && !saved) return;
+      const status = document.createElement("span");
+      status.className = `app-status${pending ? " is-pending" : ""}`;
+      status.textContent = pending ? (saved ? "将替换" : "本次已选择") : "已添加";
+      button.append(status);
+    }
+    function refreshAppStatusRows() {
+      c("appList").querySelectorAll(".app[data-package]").forEach((button) =>
+        updateAppStatus(button, button.dataset.package));
+    }
     function O() {
       let e = c("search").value.trim().toLowerCase(), t = i.apps.filter((u) => `${u.appLabel} ${u.packageName}`.toLowerCase().includes(e));
       appIconObserver?.disconnect();
@@ -249,6 +234,7 @@ ${t.textContent}`.slice(0, 6e3);
       c("appCount").textContent = `\u7528\u6237\u5E94\u7528 ${i.apps.length} \u4E2A`, c("appList").replaceChildren(...t.map((u) => {
         let n = document.createElement("button");
         n.className = "app";
+        n.dataset.package = u.packageName;
         let r = document.createElement("img");
         r.className = "app-icon";
         r.alt = "";
@@ -259,7 +245,9 @@ ${t.textContent}`.slice(0, 6e3);
           r.src = `ksu://icon/${u.packageName}`;
         }
         let l = document.createElement("span");
-        return l.className = "app-name", l.textContent = u.appLabel || "\u672A\u547D\u540D\u5E94\u7528", n.append(r, l), n.addEventListener("click", () => te(u)), n;
+        l.className = "app-name", l.textContent = u.appLabel || "\u672A\u547D\u540D\u5E94\u7528", n.append(r, l);
+        updateAppStatus(n, u.packageName);
+        return n.addEventListener("click", () => te(u)), n;
       }));
       if (deferIcons) startAppIconObserver();
     }
@@ -273,7 +261,7 @@ ${t.textContent}`.slice(0, 6e3);
         return u.className = "selection", u.innerHTML = '<img><div class="selection-meta"><strong></strong><small>\u5C06\u81EA\u52A8\u5339\u914D\u5E94\u7528</small></div><button class="remove">\u5220\u9664</button>', u.querySelector("img").src = t.url, u.querySelector("strong").textContent = t.label, u.querySelector("button").onclick = () => {
           URL.revokeObjectURL(t.url), i.selected.delete(e), Z();
         }, u;
-      })), c("selectionCount").textContent = `\u5DF2\u9009\u62E9 ${i.selected.size} \u4E2A`, c("clearSelection").disabled = i.selected.size === 0, c("iconsStepState").textContent = `${i.selected.size} \u4E2A\u5F85\u6DFB\u52A0`, c("iconsStepState").className = `step-state${i.selected.size ? " is-ready" : ""}`;
+      })), c("selectionCount").textContent = `\u5DF2\u9009\u62E9 ${i.selected.size} \u4E2A`, c("clearSelection").disabled = i.selected.size === 0, c("iconsStepState").textContent = `${i.selected.size} \u4E2A\u5F85\u6DFB\u52A0`, c("iconsStepState").className = `step-state${i.selected.size ? " is-ready" : ""}`, updateFlowState({ pendingIconCount: i.selected.size }), refreshAppStatusRows();
     }
     function clearPendingIcons() {
       for (let e of i.selected.values()) URL.revokeObjectURL(e.url);
@@ -337,6 +325,15 @@ ${t.textContent}`.slice(0, 6e3);
       window.addEventListener("hip-keyboard-changed", (event) => {
         if (event.detail?.open) appIconObserver?.disconnect();
         else if (c("appPicker").open) startAppIconObserver();
+      });
+      c("openAppPicker").addEventListener("click", refreshGroupPackages);
+      window.addEventListener("hip-group-changed", () => {
+        i.groupPackages.clear();
+        if (c("appPicker").open) refreshGroupPackages();
+      });
+      window.addEventListener("hip-recipes-changed", () => {
+        i.groupPackages.clear();
+        if (c("appPicker").open) refreshGroupPackages();
       });
     })(), c("reloadApps").onclick = P, c("clearSelection").onclick = clearPendingIcons, c("buildBtn").onclick = async () => {
       if (!window.HIPGroups?.selectedId?.()) {

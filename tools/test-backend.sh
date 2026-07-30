@@ -27,6 +27,13 @@ expect_fail() {
   fi
 }
 
+DEFAULT_ID=$(run group_initialize | sed 's/^OK://')
+[ -n "$DEFAULT_ID" ]
+run group_delete "$DEFAULT_ID" >/dev/null
+[ -z "$(run group_list)" ]
+[ "$(run group_initialize)" = "OK" ]
+[ -z "$(run group_list)" ]
+
 GROUP_ID=$(run group_create "日常图标" | sed 's/^OK://')
 [ -n "$GROUP_ID" ]
 expect_fail run group_create "日常图标"

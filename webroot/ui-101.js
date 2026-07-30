@@ -110,33 +110,6 @@
       .observe(button, { attributes: true, attributeFilter: ["disabled"] });
   }
 
-  let callbackIndex = 0;
-  const execBackend = (operation) => new Promise((resolve, reject) => {
-    const callback = `hip_ui_callback_${Date.now()}_${callbackIndex++}`;
-    const timeout = setTimeout(() => {
-      delete window[callback];
-      reject(new Error("设备命令响应超时，请稍后重试"));
-    }, 60000);
-    window[callback] = (errno, stdout, stderr) => {
-      clearTimeout(timeout);
-      delete window[callback];
-      const output = String(stdout || "").trim();
-      if (errno !== 0 || output.startsWith("ERROR:")) reject(new Error(output || stderr || `命令失败：${errno}`));
-      else resolve(output);
-    };
-    try {
-      ksu.exec(
-        `sh /data/adb/modules/hyper_icon_patcher/scripts/backend.sh ${operation}`,
-        "{}",
-        callback
-      );
-    } catch (error) {
-      clearTimeout(timeout);
-      delete window[callback];
-      reject(error);
-    }
-  });
-
   let closingFromHistory = false;
   const openDialog = (id, pushHistory = true) => {
     const dialog = byId(id);
@@ -201,21 +174,4 @@
     chip.hidden = !name;
   });
 
-  const launcherButton = byId("refreshLauncher");
-  launcherButton.addEventListener("click", async () => {
-    launcherButton.disabled = true;
-    launcherButton.classList.add("button-loading");
-    launcherButton.replaceChildren(makeSpinner(), "正在重启系统桌面…");
-    const log = byId("log");
-    try {
-      await execBackend("refresh");
-      appendLog("系统桌面已重启，图标会重新载入");
-    } catch (error) {
-      notifyError(`桌面刷新失败：${error.message}`, true);
-    } finally {
-      launcherButton.classList.remove("button-loading");
-      launcherButton.textContent = "重启系统桌面";
-      launcherButton.disabled = false;
-    }
-  });
 })();

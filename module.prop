@@ -1,7 +1,7 @@
 id=hyper_icon_patcher
 name=HyperOS 图标补全器
-version=0.14.0
-versionCode=150
+version=0.15.0
+versionCode=160
 author=eridanus
 description=为主题商店图标主题修补 PNG 图标，支持可复用修补组、缺失补全或同名覆盖、50KB 限制及异常自动回滚。
 updateJson=https://raw.githubusercontent.com/ZeroHomers0/hyper-icon-patcher/main/update.json

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#111318">
   <title>HyperOS 图标补全器</title>
-  <link rel="stylesheet" href="style-110.css?v=147">
+  <link rel="stylesheet" href="style-110.css?v=150">
 </head>
 <body>
   <header>
@@ -30,7 +30,6 @@
         <li>在“待修补图标”中选择应用和 PNG 图标，将它们添加到当前修补组。</li>
         <li>选择“仅补全缺失图标”或“覆盖同名图标”，再点击“修补主题”。</li>
         <li>打开主题商店，在“我的／图标”中应用该占位主题。</li>
-        <li>如果桌面图标没有立即变化，点击“重启系统桌面”；系统桌面会短暂重启。</li>
       </ol>
       <p>仅支持 PNG。模块会自动调整尺寸，确保每个新增图标不超过 50KB。写入异常时会自动回滚。</p>
     </details>
@@ -46,7 +45,7 @@
       <select id="cacheSelect" class="search">
         <option value="">尚未扫描</option>
       </select>
-      <p id="cacheSelectedInfo" class="hint">请先在小米主题商店下载一个不使用的图标主题，作为占位主题。</p>
+      <p id="cacheSelectedInfo" class="hint"></p>
     </section>
 
     <section class="card">
@@ -101,7 +100,6 @@
       <div id="patchResult" class="result-card" hidden></div>
       <div class="utility-actions">
         <button id="cacheOpen">打开主题商店</button>
-        <button id="refreshLauncher">重启系统桌面</button>
       </div>
       <p class="hint">操作顺序：选择主题 → 选择修补组 → 添加自定义图标 → 选择模式并修补主题。</p>
     </section>
@@ -157,10 +155,10 @@
   </main>
 
   <input id="iconInput" type="file" accept="image/png,.png" hidden>
-  <script src="ui-101.js?v=147"></script>
-  <script type="module" src="app-121.js?v=147"></script>
-  <script type="module" src="cache-101.js?v=147"></script>
-  <script type="module" src="recipe-123.js?v=147"></script>
+  <script type="module" src="ui-101.js?v=150"></script>
+  <script type="module" src="app-121.js?v=150"></script>
+  <script type="module" src="cache-101.js?v=150"></script>
+  <script type="module" src="recipe-123.js?v=150"></script>
   <script src="theme-094.js"></script>
 </body>
 </html>

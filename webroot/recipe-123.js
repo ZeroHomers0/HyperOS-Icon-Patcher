@@ -1,33 +1,18 @@
+import { execBackend } from "./backend-client.js?v=150";
+import { updateFlowState } from "./flow-state.js?v=150";
+
 (() => {
   const byId = (id) => document.getElementById(id);
-  const script = "/data/adb/modules/hyper_icon_patcher/scripts/backend.sh";
-  const quote = (value) => `'${String(value).replaceAll("'", "'\\''")}'`;
-  let callbackIndex = 0;
+  const exec = execBackend;
   let groups = [];
   let objectUrls = [];
   let selectedPackages = new Set();
   let previewObserver;
   let activeGroupId = "";
   let deleting = false;
+  let groupsInitialized = false;
 
   const notify = (message) => window.HIPNotify ? window.HIPNotify(message, true) : window.alert(message);
-  function exec(operation, ...args) {
-    return new Promise((resolve, reject) => {
-      const callback = `hip_group_${Date.now()}_${callbackIndex++}`;
-      const timeoutMs = ["group_clone", "recipe_delete_batch", "maintenance"].includes(operation) ? 180000 : 60000;
-      const timer = setTimeout(() => { delete window[callback]; reject(new Error("设备命令响应超时")); }, timeoutMs);
-      window[callback] = (errno, stdout, stderr) => {
-        clearTimeout(timer);
-        delete window[callback];
-        const output = String(stdout || "").trim();
-        if (errno !== 0 || output.startsWith("ERROR:")) reject(new Error(output.replace(/^ERROR:/, "") || stderr || `命令失败：${errno}`));
-        else resolve(output);
-      };
-      try { ksu.exec(["sh", script, operation, ...args.map(quote)].join(" "), "{}", callback); }
-      catch (error) { clearTimeout(timer); delete window[callback]; reject(error); }
-    });
-  }
-
   function decode(value) {
     try { return new TextDecoder().decode(Uint8Array.from(atob(value || ""), (char) => char.charCodeAt(0))); }
     catch { return ""; }
@@ -56,6 +41,7 @@
     if (id) localStorage.setItem("hip-last-group", id);
     else localStorage.removeItem("hip-last-group");
     const group = selectedGroup();
+    updateFlowState({ group: group ? { id: group.id, name: group.name, count: group.count } : null });
     byId("groupInfo").textContent = group ? `${group.name} · ${group.count} 个图标` : "请选择或创建修补组";
     byId("groupStepState").textContent = group ? `${group.count} 个图标` : "未选择";
     byId("groupStepState").className = `step-state${group ? " is-ready" : ""}`;
@@ -117,11 +103,20 @@
     }));
   }
 
-  async function refreshGroups(preferredId = "") {
-    groups = (await exec("group_list")).split(/\r?\n/).filter(Boolean).map((line) => {
+  function parseGroups(output) {
+    return output.split(/\r?\n/).filter(Boolean).map((line) => {
       const [id, name64, count, mtime] = line.split("\t");
       return { id, name: decode(name64) || "未命名修补组", count: Number(count), mtime: Number(mtime) };
     });
+  }
+
+  async function refreshGroups(preferredId = "") {
+    if (!groupsInitialized) {
+      const initialized = await exec("group_initialize");
+      groupsInitialized = true;
+      if (!preferredId) preferredId = initialized.replace(/^OK:/, "");
+    }
+    groups = parseGroups(await exec("group_list"));
     byId("groupSelect").replaceChildren(
       Object.assign(document.createElement("option"), { value: "", textContent: groups.length ? "请选择修补组" : "尚未创建修补组" }),
       ...groups.map((group) => Object.assign(document.createElement("option"), {
