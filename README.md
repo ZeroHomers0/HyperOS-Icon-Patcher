@@ -18,6 +18,23 @@
 
 GitHub Release 标签使用 `v版本号`，附件名称使用 `HyperOS-Icon-Patcher-v版本号.zip`。
 
+## Windows 打包
+
+直接双击仓库根目录的 `pack-module.bat`。脚本会自动读取 `module.prop` 版本号，
+在仓库根目录生成 `HyperOS-Icon-Patcher-v版本号.zip`，并输出文件大小和 SHA-256。
+
+也可以在命令行中指定输出目录：
+
+```bat
+pack-module.bat E:\my\release
+```
+
+需要在打包前重新编译 Android ARM64 辅助工具时使用：
+
+```bat
+pack-module.bat -RebuildHelper
+```
+
 ## 功能
 
 - 仅列出用户安装应用，展示应用名称及当前图标
