@@ -273,12 +273,23 @@ input[type=file] { display: none; }
 .recipe-actions button { white-space: nowrap; }
 
 /* Keep keyboard animation work inside the list instead of re-centering the whole page. */
-@media (max-width: 760px), (pointer: coarse) {
+/* KernelSU WebView may report desktop-like width/pointer values on a phone.
+   Use the stable full-screen layout by default, then opt real mouse desktops out below. */
+@media screen {
+  body.sheet-open { overflow: hidden; }
+  body.sheet-open::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 6;
+    background: var(--card);
+    pointer-events: none;
+  }
   .sheet {
     position: fixed;
-    inset: var(--hip-visual-offset, 0px) 0 auto;
+    inset: 0;
     width: 100%;
-    height: var(--hip-visual-height, 100dvh);
+    height: 100%;
     max-height: none;
     margin: 0;
     padding: 16px;
@@ -290,12 +301,37 @@ input[type=file] { display: none; }
   .sheet-header { margin: -16px -16px 12px; padding: calc(14px + env(safe-area-inset-top)) 16px 14px; }
   .app-list { flex: 1 1 auto; max-height: none; }
   .compact-sheet {
-    inset: calc(var(--hip-visual-offset, 0px) + 12px) 12px auto;
+    inset: 12px 12px auto;
     width: calc(100% - 24px);
     height: auto;
-    max-height: calc(var(--hip-visual-height, 100dvh) - 24px);
+    max-height: calc(100% - 24px);
     border: 1px solid var(--line);
     border-radius: 20px;
+  }
+}
+
+@media (min-width: 1025px) and (hover: hover) and (pointer: fine) {
+  body.sheet-open { overflow: auto; }
+  body.sheet-open::before { display: none; }
+  .sheet {
+    inset: 0;
+    width: min(720px, calc(100% - 20px));
+    height: auto;
+    max-height: 88dvh;
+    margin: auto;
+    padding: 17px;
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    box-shadow: 0 24px 80px rgba(0,0,0,.45);
+  }
+  .sheet::backdrop { backdrop-filter: blur(3px); }
+  .sheet-header { margin: -17px -17px 12px; padding: 17px; }
+  .app-list { flex: 0 1 auto; max-height: 420px; }
+  .compact-sheet {
+    inset: 0;
+    width: min(440px, calc(100% - 24px));
+    max-height: 88dvh;
+    margin: auto;
   }
 }
 

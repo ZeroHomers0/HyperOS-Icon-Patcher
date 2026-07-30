@@ -274,7 +274,7 @@
       const id = (await exec("group_create", name)).replace(/^OK:/, "");
       byId("newGroupName").value = "";
       await refreshGroups(id);
-      byId("groupCreator").close();
+      window.HIPCloseSheet?.("groupCreator");
     } catch (error) { notify(`创建失败：${error.message}`); }
   };
   byId("newGroupName").addEventListener("keydown", (event) => {

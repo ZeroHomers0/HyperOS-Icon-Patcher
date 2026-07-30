@@ -53,7 +53,7 @@
     notifyError(`操作异常：${event.reason?.message || event.reason || "未知错误"}`, true);
   });
 
-  // Android IME 会连续改变 visualViewport；每帧最多写一次 CSS，避免 resize 风暴。
+  // 只用 visualViewport 判断键盘状态，不逐帧驱动弹窗尺寸，避免底部露底闪烁。
   const viewport = window.visualViewport;
   let viewportFrame = 0;
   let baselineViewportHeight = viewport?.height || window.innerHeight;
@@ -62,12 +62,9 @@
   const syncViewport = () => {
     viewportFrame = 0;
     const height = Math.round(viewport?.height || window.innerHeight);
-    const offset = Math.round(viewport?.offsetTop || 0);
     const editing = isEditable(document.activeElement);
     if (!editing) baselineViewportHeight = Math.max(baselineViewportHeight, height);
     const nextKeyboardOpen = editing && height < baselineViewportHeight - 80;
-    document.documentElement.style.setProperty("--hip-visual-height", `${height}px`);
-    document.documentElement.style.setProperty("--hip-visual-offset", `${offset}px`);
     document.body.classList.toggle("keyboard-open", nextKeyboardOpen);
     if (nextKeyboardOpen !== keyboardOpen) {
       keyboardOpen = nextKeyboardOpen;
@@ -140,11 +137,21 @@
     }
   });
 
-  const openDialog = (id) => {
+  let closingFromHistory = false;
+  const openDialog = (id, pushHistory = true) => {
     const dialog = byId(id);
-    if (dialog && !dialog.open) dialog.showModal();
+    if (dialog && !dialog.open) {
+      dialog.showModal();
+      if (pushHistory) history.pushState({ ...(history.state || {}), hipSheet: id }, "");
+    }
     document.body.classList.toggle("sheet-open", Boolean(document.querySelector("dialog[open]")));
   };
+  const closeDialog = (dialog) => {
+    if (!dialog?.open) return;
+    if (!closingFromHistory && history.state?.hipSheet === dialog.id) history.back();
+    else dialog.close();
+  };
+  window.HIPCloseSheet = (id) => closeDialog(byId(id));
   byId("openAppPicker")?.addEventListener("click", () => openDialog("appPicker"));
   byId("openRecipeManager")?.addEventListener("click", () => {
     openDialog("recipeManager");
@@ -159,18 +166,32 @@
     requestAnimationFrame(() => byId("newGroupName")?.focus());
   });
   document.querySelectorAll(".close-sheet").forEach((button) =>
-    button.addEventListener("click", () => byId(button.dataset.close)?.close()));
+    button.addEventListener("click", () => closeDialog(byId(button.dataset.close))));
   document.querySelectorAll("dialog").forEach((dialog) => {
     dialog.addEventListener("click", (event) => {
-      if (event.target === dialog) dialog.close();
+      if (event.target === dialog) closeDialog(dialog);
+    });
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      closeDialog(dialog);
     });
     dialog.addEventListener("close", () => {
       document.body.classList.toggle("sheet-open", Boolean(document.querySelector("dialog[open]")));
       if (dialog.id === "groupCreator" && dialog.dataset.returnToManager === "true") {
         delete dialog.dataset.returnToManager;
-        openDialog("recipeManager");
+        openDialog("recipeManager", false);
       }
     });
+  });
+  window.addEventListener("popstate", (event) => {
+    const open = document.querySelector("dialog[open]");
+    if (open) {
+      closingFromHistory = true;
+      open.close();
+      closingFromHistory = false;
+    }
+    const targetId = event.state?.hipSheet;
+    if (targetId && !byId(targetId)?.open) openDialog(targetId, false);
   });
   window.addEventListener("hip-group-changed", (event) => {
     const chip = byId("activeGroupChip");

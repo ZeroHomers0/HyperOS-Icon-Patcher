@@ -31,8 +31,18 @@ const ui = read("webroot/ui-101.js");
 if (!ui.includes("visualViewport") || !ui.includes("hip-keyboard-changed")) {
   throw new Error("keyboard viewport contract is missing");
 }
-if (!read("webroot/style-110.css").includes("--hip-visual-height")) {
-  throw new Error("mobile visual viewport CSS contract is missing");
+if (!ui.includes("history.pushState") || !ui.includes('addEventListener("popstate"')) {
+  throw new Error("secondary-page back-navigation contract is missing");
+}
+const styles = read("webroot/style-110.css");
+if (!styles.includes("height: 100%;")) {
+  throw new Error("stable mobile sheet geometry contract is missing");
+}
+if (!styles.includes("body.sheet-open::before")) {
+  throw new Error("mobile sheet background mask contract is missing");
+}
+if (!styles.includes("@media screen") || !styles.includes("(pointer: fine)")) {
+  throw new Error("phone-first sheet media contract is missing");
 }
 
 const cases = new Set([...backend.matchAll(/^  ([a-z_]+)\)/gm)].map((match) => match[1]));
