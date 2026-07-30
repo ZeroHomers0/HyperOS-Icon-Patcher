@@ -243,7 +243,9 @@ ${t.textContent}`.slice(0, 6e3);
       let e = c("search").value.trim().toLowerCase(), t = i.apps.filter((u) => `${u.appLabel} ${u.packageName}`.toLowerCase().includes(e));
       appIconObserver?.disconnect();
       appIconObserver = undefined;
-      const deferIcons = "IntersectionObserver" in window;
+      // 搜索时结果集已经很小，直接交给浏览器懒加载，避免键盘暂停观察器后图标空白。
+      const searching = e.length > 0;
+      const deferIcons = "IntersectionObserver" in window && !searching;
       c("appCount").textContent = `\u7528\u6237\u5E94\u7528 ${i.apps.length} \u4E2A`, c("appList").replaceChildren(...t.map((u) => {
         let n = document.createElement("button");
         n.className = "app";

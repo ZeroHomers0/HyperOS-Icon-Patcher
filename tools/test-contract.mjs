@@ -44,6 +44,10 @@ if (!styles.includes("body.sheet-open::before")) {
 if (!styles.includes("@media screen") || !styles.includes("(pointer: fine)")) {
   throw new Error("phone-first sheet media contract is missing");
 }
+const appSource = read("webroot/app-121.js");
+if (!appSource.includes("const searching = e.length > 0") || !appSource.includes("&& !searching")) {
+  throw new Error("search-result icon loading contract is missing");
+}
 
 const cases = new Set([...backend.matchAll(/^  ([a-z_]+)\)/gm)].map((match) => match[1]));
 const operations = new Set();
