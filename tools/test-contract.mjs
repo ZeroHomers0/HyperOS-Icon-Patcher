@@ -56,8 +56,11 @@ if (!groupSource.includes('exec("group_initialize"') || !backend.includes('group
   throw new Error("default patch-group contract is missing");
 }
 const cacheSource = read("webroot/cache-101.js");
-for (const label of ["请选择待修补主题", "请选择修补组", "请先添加图标", "打开主题商店"]) {
+for (const label of ["请选择待修补主题", "请选择修补组", "请先添加图标"]) {
   if (!cacheSource.includes(label)) throw new Error(`primary-action state is missing: ${label}`);
+}
+if (cacheSource.includes('button.textContent = "打开主题商店"')) {
+  throw new Error("patch button must not duplicate the theme-store action");
 }
 for (const sharedModule of ["webroot/backend-client.js", "webroot/flow-state.js"]) {
   if (!fs.existsSync(sharedModule)) throw new Error(`missing shared WebUI module ${sharedModule}`);

@@ -10,7 +10,6 @@ import { getFlowState, subscribeFlowState, updateFlowState } from "./flow-state.
   let scanPromise;
   let patching = false;
   let indexReady = false;
-  let patchCompleted = false;
   let rescanOnResume = false;
   let themeStoreWasHidden = false;
   let themeStoreOpenedAt = 0;
@@ -55,11 +54,6 @@ import { getFlowState, subscribeFlowState, updateFlowState } from "./flow-state.
       button.textContent = "正在修补…";
       return;
     }
-    if (patchCompleted) {
-      button.disabled = false;
-      button.textContent = "打开主题商店";
-      return;
-    }
     if (!selected()) {
       button.disabled = true;
       button.textContent = "请选择待修补主题";
@@ -99,7 +93,6 @@ import { getFlowState, subscribeFlowState, updateFlowState } from "./flow-state.
     localStorage.setItem("hip-last-theme", theme.name);
     renderSelection(" · 正在读取索引…");
     indexReady = false;
-    patchCompleted = false;
     updateFlowState({
       theme: { name: theme.name, label: theme.label || theme.name },
       themeReady: false,
@@ -169,7 +162,6 @@ import { getFlowState, subscribeFlowState, updateFlowState } from "./flow-state.
       } catch (error) {
         themes = [];
         indexReady = false;
-        patchCompleted = false;
         updateFlowState({ theme: null, themeReady: false, patchStatus: "error" });
         byId("cacheInfo").textContent = error.message;
         renderSelection();
@@ -184,7 +176,6 @@ import { getFlowState, subscribeFlowState, updateFlowState } from "./flow-state.
 
   byId("cacheSelect").addEventListener("change", () => inspectSelectedTheme(true));
   window.addEventListener("hip-patch-input-changed", () => {
-    patchCompleted = false;
     updateFlowState({ patchStatus: "idle" });
     setStepState("patchStepState", "尚未修补");
     byId("patchResult").hidden = true;
@@ -200,10 +191,6 @@ import { getFlowState, subscribeFlowState, updateFlowState } from "./flow-state.
   byId("cachePatch").addEventListener("click", async () => {
     // 从点击开始锁定；后端 fast_patch 还会用设备端互斥锁防住多 WebUI 并发。
     if (patching) return;
-    if (patchCompleted) {
-      byId("cacheOpen").click();
-      return;
-    }
     const theme = selected();
     if (!theme) return notify("请先选择待修补主题");
     const button = byId("cachePatch");
@@ -259,7 +246,6 @@ import { getFlowState, subscribeFlowState, updateFlowState } from "./flow-state.
         byId("patchResult").textContent = `无需修补：“${theme.label || theme.name}”已经包含修补组“${groupName}”中的全部图标。`;
         byId("patchResult").hidden = false;
         setStepState("patchStepState", "无需修补", "is-ready");
-        patchCompleted = true;
         updateFlowState({ patchStatus: "complete" });
         log(`无需修补：${theme.label || theme.name} · ${groupName} · 0 个新增条目`);
         window.HIPToast?.("当前主题已包含全部组内图标");
@@ -269,12 +255,10 @@ import { getFlowState, subscribeFlowState, updateFlowState } from "./flow-state.
       byId("patchResult").textContent = `已使用“${groupName}”修补主题“${theme.label || theme.name}”｜${modeText}｜处理 ${iconCount} 个｜写入 ${entryCount} 个。`;
       byId("patchResult").hidden = false;
       setStepState("patchStepState", "已完成", "is-ready");
-      patchCompleted = true;
       updateFlowState({ patchStatus: "complete" });
       log(`修补完成：处理 ${iconCount} 个自定义图标 · 写入 ${entryCount} 个主题条目 · ${patch.replace(/^OK:/, "")}`);
       if (window.HIPToast) window.HIPToast("主题修补完成");
     } catch (error) {
-      patchCompleted = false;
       updateFlowState({ patchStatus: "error" });
       setStepState("patchStepState", "修补失败", "is-error");
       notify(`修补主题失败：${error.message}`);
