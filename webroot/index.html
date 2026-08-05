@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#111318">
   <title>HyperOS 图标补全器</title>
-  <link rel="stylesheet" href="style-110.css?v=160">
+  <link rel="stylesheet" href="style-110.css?v=161">
 </head>
 <body>
   <header>
@@ -194,7 +194,10 @@
           <button id="stitchSelectVisible" class="compact-button" disabled>全选当前</button>
           <button id="stitchClearSelection" class="compact-button danger" disabled>清空</button>
         </div>
-        <div class="stitch-column-head" aria-hidden="true"><span>目标主题</span><span>源主题</span></div>
+        <div class="stitch-column-head" aria-hidden="true">
+          <span class="stitch-column-target">目标主题</span>
+          <span class="stitch-column-source">源主题</span>
+        </div>
         <div id="stitchEmpty" class="empty">请选择目标主题和源主题</div>
         <div id="stitchList" class="stitch-list"></div>
       </section>

@@ -294,7 +294,21 @@ input[type=file] { display: none; }
 .stitch-icons-card .selection-toolbar .muted { min-width: 100%; margin: 0; }
 .stitch-column-head {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px;
-  margin: 10px 0 6px; color: var(--muted); font-size: 10px; font-weight: 750; text-align: center;
+  margin: 12px 0 8px; font-size: 12px; font-weight: 800; text-align: center;
+}
+.stitch-column-head span {
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: 11px;
+  background: var(--card-2); letter-spacing: .4px;
+}
+.stitch-column-target {
+  border-color: rgba(255,105,0,.5) !important;
+  background: rgba(255,105,0,.12) !important;
+  color: var(--accent);
+}
+.stitch-column-source {
+  border-color: rgba(45,180,105,.45) !important;
+  background: rgba(45,180,105,.12) !important;
+  color: #64dfa0;
 }
 .stitch-list { display: grid; gap: 10px; }
 .stitch-item {

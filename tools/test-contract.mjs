@@ -112,7 +112,7 @@ for (const id of ["modePatch", "modeStitch", "stitchTarget", "stitchSource", "st
 if (!backend.includes("theme_fingerprint") || !backend.includes("stitch_apply) stitch_apply")) {
   throw new Error("atomic stitch backend contract is missing");
 }
-if (!html.includes('workspace-160.js?v=160') || !html.includes('stitch-160.js?v=160') || !html.includes('style-110.css?v=160')) {
+if (!html.includes('workspace-160.js?v=160') || !html.includes('stitch-160.js?v=160') || !html.includes('style-110.css?v=161')) {
   throw new Error("stitch WebUI cache-busting contract is missing");
 }
 const workspaceSource = read("webroot/workspace-160.js");
