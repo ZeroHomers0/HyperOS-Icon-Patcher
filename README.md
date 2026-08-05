@@ -21,7 +21,7 @@ GitHub Release 标签使用 `v版本号`，附件名称使用 `HyperOS-Icon-Patc
 ## Windows 打包
 
 直接双击仓库根目录的 `pack-module.bat`。脚本会自动读取 `module.prop` 版本号，
-在仓库根目录生成 `HyperOS-Icon-Patcher-v版本号.zip`，并输出文件大小和 SHA-256。
+在仓库根目录的 `output` 文件夹中生成 `HyperOS-Icon-Patcher-v版本号.zip`，并输出文件大小和 SHA-256。
 
 也可以在命令行中指定输出目录：
 

@@ -11,6 +11,7 @@ This repository is both the source tree and the KernelSU module root. Keep `modu
 - `tools/test-*.{mjs,sh}`: frontend contracts and backend boundary tests.
 - `bin/hipzip-arm64`: compiled helper shipped in releases.
 - `tools/pack-release.ps1` and `pack-module.bat`: Windows release packaging.
+- `output/`: the required generated-release directory. All module ZIPs must be written here; never place generated ZIPs at the repository root or commit this directory.
 
 Generated ZIPs, local toolchains, logs, and editor settings are ignored.
 
@@ -28,6 +29,8 @@ bash tools/test-backend.sh
 ```
 
 The contract test checks required DOM IDs, backend operations, and UI regressions. Go tests validate archive manipulation. Backend tests exercise shell boundary conditions with test shims. `build-hipzip.ps1` cross-compiles the ARM64 helper; only rebuild it when Go helper code changes. The release script creates a root-layout ZIP and verifies required entries. Windows users may double-click `pack-module.bat`.
+
+Release packages must be generated under the repository-root `output/` directory. Running `tools/pack-release.ps1` or double-clicking `pack-module.bat` without an explicit output argument must produce `output/HyperOS-Icon-Patcher-vX.Y.Z.zip`. Keep `output/` ignored and never use the repository root as the generated-package destination.
 
 ## Coding Style & Naming Conventions
 

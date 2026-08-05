@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 
 if (-not $OutputDirectory) {
-    $OutputDirectory = $repoRoot
+    $OutputDirectory = Join-Path $repoRoot "output"
 }
 elseif (-not [System.IO.Path]::IsPathRooted($OutputDirectory)) {
     $OutputDirectory = Join-Path $repoRoot $OutputDirectory
