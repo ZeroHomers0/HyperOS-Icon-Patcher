@@ -7,6 +7,8 @@ const files = {
   "webroot/ui-101.js": /byId\("([^"]+)"\)/g,
   "webroot/cache-101.js": /byId\("([^"]+)"\)/g,
   "webroot/recipe-123.js": /byId\("([^"]+)"\)/g,
+  "webroot/stitch-160.js": /byId\("([^"]+)"\)/g,
+  "webroot/workspace-160.js": /byId\("([^"]+)"\)/g,
   "webroot/app-121.js": /\bc\("([^"]+)"\)/g
 };
 
@@ -71,7 +73,7 @@ if (!read("webroot/backend-client.js").includes("export function execBackend")) 
 
 const cases = new Set([...backend.matchAll(/^  ([a-z_]+)\)/gm)].map((match) => match[1]));
 const operations = new Set();
-for (const file of ["webroot/cache-101.js", "webroot/recipe-123.js"]) {
+for (const file of ["webroot/cache-101.js", "webroot/recipe-123.js", "webroot/stitch-160.js"]) {
   for (const match of read(file).matchAll(/exec\("([a-z_]+)"/g)) operations.add(match[1]);
 }
 for (const operation of [
@@ -92,6 +94,30 @@ for (const removed of ["fast_build", "prepare_cache", "stream_cache", "patch_cac
 }
 if (!backend.includes("acquire_operation_lock") || !backend.includes("fast_patch)")) {
   throw new Error("atomic fast_patch contract is missing");
+}
+const stitchSource = read("webroot/stitch-160.js");
+for (const contract of [
+  'row.kind === "add"',
+  'selectedPackages.add(row.packageName)',
+  'previewActive < 4',
+  'exec("stitch_begin"',
+  'exec("stitch_upload_chunk"',
+  'exec("stitch_apply"'
+]) {
+  if (!stitchSource.includes(contract)) throw new Error(`stitch WebUI contract is missing: ${contract}`);
+}
+for (const id of ["modePatch", "modeStitch", "stitchTarget", "stitchSource", "stitchList", "stitchApply"]) {
+  if (!ids.has(id)) throw new Error(`stitch DOM contract is missing: ${id}`);
+}
+if (!backend.includes("theme_fingerprint") || !backend.includes("stitch_apply) stitch_apply")) {
+  throw new Error("atomic stitch backend contract is missing");
+}
+if (!html.includes('workspace-160.js?v=160') || !html.includes('stitch-160.js?v=160') || !html.includes('style-110.css?v=160')) {
+  throw new Error("stitch WebUI cache-busting contract is missing");
+}
+const workspaceSource = read("webroot/workspace-160.js");
+if (!workspaceSource.includes('typeof ksu !== "undefined"') || !workspaceSource.includes("电脑端仅用于预览界面")) {
+  throw new Error("local-file workspace preview contract is missing");
 }
 
 console.log(`Contract tests passed: ${ids.size} DOM ids, ${operations.size} backend operations`);

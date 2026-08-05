@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
@@ -12,15 +13,18 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 )
 
 const (
-	maxSourceSize = 80 * 1024 * 1024
-	maxIconSize   = 50 * 1024
-	maxIconCount  = 500
+	maxSourceSize    = 80 * 1024 * 1024
+	maxIconSize      = 50 * 1024
+	maxThemeIconSize = 4 * 1024 * 1024
+	maxIconCount     = 500
+	maxStitchCount   = 2000
 )
 
 type iconFile struct {
@@ -28,13 +32,49 @@ type iconFile struct {
 	data []byte
 }
 
+type replacementIcon struct {
+	data  []byte
+	entry *zip.File
+}
+
+func (icon replacementIcon) read(limit int64) ([]byte, error) {
+	if icon.entry == nil {
+		if len(icon.data) == 0 || int64(len(icon.data)) > limit {
+			return nil, errors.New("replacement icon size is invalid")
+		}
+		return icon.data, nil
+	}
+	if icon.entry.UncompressedSize64 == 0 || icon.entry.UncompressedSize64 > uint64(limit) {
+		return nil, fmt.Errorf("theme icon size is invalid: %q", icon.entry.Name)
+	}
+	stream, err := icon.entry.Open()
+	if err != nil {
+		return nil, fmt.Errorf("cannot open theme icon %q: %w", icon.entry.Name, err)
+	}
+	defer stream.Close()
+	data, err := io.ReadAll(io.LimitReader(stream, limit+1))
+	if err != nil {
+		return nil, fmt.Errorf("cannot read theme icon %q: %w", icon.entry.Name, err)
+	}
+	if len(data) == 0 || int64(len(data)) > limit {
+		return nil, fmt.Errorf("theme icon size is invalid: %q", icon.entry.Name)
+	}
+	return data, nil
+}
+
 func main() {
 	source := flag.String("source", "", "source ZIP/MRC")
+	donor := flag.String("donor", "", "donor ZIP/MRC for theme stitching")
 	output := flag.String("output", "", "output ZIP/MRC")
 	icons := flag.String("icons", "", "directory containing package-name PNG files")
+	packages := flag.String("packages", "", "newline-delimited installed package filter")
+	selection := flag.String("selection", "", "newline-delimited packages selected for stitching")
+	packageName := flag.String("package", "", "package name for preview")
 	prefix := flag.String("prefix", "", "ZIP drawable directory")
 	missingOnly := flag.Bool("missing-only", false, "only add icons missing from the source")
 	inspect := flag.Bool("inspect", false, "print drawable entry index as JSON")
+	catalog := flag.Bool("catalog", false, "compare donor icons with the target as JSON")
+	preview := flag.Bool("preview", false, "write one theme icon PNG to stdout")
 	flag.Parse()
 
 	if *inspect {
@@ -42,6 +82,29 @@ func main() {
 			fmt.Fprintln(os.Stderr, "ERROR:"+err.Error())
 			os.Exit(1)
 		}
+		return
+	}
+	if *catalog {
+		if err := catalogThemes(*source, *donor, *packages, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "ERROR:"+err.Error())
+			os.Exit(1)
+		}
+		return
+	}
+	if *preview {
+		if err := previewThemeIcon(*source, *packageName, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "ERROR:"+err.Error())
+			os.Exit(1)
+		}
+		return
+	}
+	if *donor != "" || *selection != "" {
+		result, err := stitchThemes(*source, *donor, *selection, *output)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "ERROR:"+err.Error())
+			os.Exit(1)
+		}
+		fmt.Printf("OK:%d:%d:%d:%d\n", result.Selected, result.Added, result.Replaced, result.SourceSize)
 		return
 	}
 	if err := patchWithOptions(*source, *output, *icons, *prefix, *missingOnly); err != nil {
@@ -87,6 +150,276 @@ func inspectArchive(source string, output io.Writer) error {
 		EntryCount: entryCount,
 		Size:       info.Size(),
 	})
+}
+
+type stitchCatalogRow struct {
+	PackageName string `json:"packageName"`
+	Kind        string `json:"kind"`
+}
+
+type stitchCatalog struct {
+	TargetFingerprint string             `json:"targetFingerprint"`
+	SourceFingerprint string             `json:"sourceFingerprint"`
+	Rows              []stitchCatalogRow `json:"rows"`
+}
+
+type stitchResult struct {
+	Selected   int
+	Added      int
+	Replaced   int
+	SourceSize int64
+}
+
+func openThemeArchive(filename string) (*zip.ReadCloser, os.FileInfo, error) {
+	if filename == "" {
+		return nil, nil, errors.New("missing theme path")
+	}
+	info, err := os.Stat(filename)
+	if err != nil {
+		return nil, nil, fmt.Errorf("theme unavailable: %w", err)
+	}
+	if info.Size() <= 0 || info.Size() > maxSourceSize {
+		return nil, nil, errors.New("theme size is invalid")
+	}
+	reader, err := zip.OpenReader(filename)
+	if err != nil {
+		return nil, nil, fmt.Errorf("theme ZIP is invalid: %w", err)
+	}
+	for _, entry := range reader.File {
+		if !safeEntryName(entry.Name) {
+			reader.Close()
+			return nil, nil, fmt.Errorf("unsafe ZIP entry: %q", entry.Name)
+		}
+	}
+	return reader, info, nil
+}
+
+func themeFingerprint(info os.FileInfo) string {
+	return fmt.Sprintf("%d:%d", info.Size(), info.ModTime().Unix())
+}
+
+func loadPackageSet(filename string, maximum int) (map[string]bool, error) {
+	if filename == "" {
+		return nil, nil
+	}
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, fmt.Errorf("cannot read package list: %w", err)
+	}
+	defer file.Close()
+	packages := make(map[string]bool)
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 1024), 64*1024)
+	for scanner.Scan() {
+		name := strings.TrimSpace(scanner.Text())
+		if !validPackage(name) {
+			return nil, fmt.Errorf("invalid package in list: %q", name)
+		}
+		packages[name] = true
+		if len(packages) > maximum {
+			return nil, fmt.Errorf("package list exceeds %d entries", maximum)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("cannot scan package list: %w", err)
+	}
+	return packages, nil
+}
+
+func themeIconGroups(entries []*zip.File) map[string][]*zip.File {
+	groups := make(map[string][]*zip.File)
+	for _, entry := range entries {
+		dir, name := path.Split(entry.Name)
+		if !isDrawableDirectory(dir) || !strings.HasSuffix(strings.ToLower(name), ".png") {
+			continue
+		}
+		packageName := strings.TrimSuffix(name, path.Ext(name))
+		if !validPackage(packageName) {
+			continue
+		}
+		groups[packageName] = append(groups[packageName], entry)
+	}
+	return groups
+}
+
+func catalogThemes(target, donor, packagesFile string, output io.Writer) error {
+	targetReader, targetInfo, err := openThemeArchive(target)
+	if err != nil {
+		return err
+	}
+	defer targetReader.Close()
+	donorReader, donorInfo, err := openThemeArchive(donor)
+	if err != nil {
+		return err
+	}
+	defer donorReader.Close()
+	if os.SameFile(targetInfo, donorInfo) {
+		return errors.New("target and donor themes must be different")
+	}
+	installed, err := loadPackageSet(packagesFile, 10000)
+	if err != nil {
+		return err
+	}
+	targetIcons := themeIconGroups(targetReader.File)
+	donorIcons := themeIconGroups(donorReader.File)
+	rows := make([]stitchCatalogRow, 0, len(donorIcons))
+	for packageName := range donorIcons {
+		if installed != nil && !installed[packageName] {
+			continue
+		}
+		kind := "add"
+		if len(targetIcons[packageName]) > 0 {
+			kind = "replace"
+		}
+		rows = append(rows, stitchCatalogRow{PackageName: packageName, Kind: kind})
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Kind != rows[j].Kind {
+			return rows[i].Kind == "add"
+		}
+		return rows[i].PackageName < rows[j].PackageName
+	})
+	return json.NewEncoder(output).Encode(stitchCatalog{
+		TargetFingerprint: themeFingerprint(targetInfo),
+		SourceFingerprint: themeFingerprint(donorInfo),
+		Rows:              rows,
+	})
+}
+
+func preferredThemeEntry(entries []*zip.File) *zip.File {
+	if len(entries) == 0 {
+		return nil
+	}
+	prefix := preferredDrawablePrefix(entries)
+	for _, entry := range entries {
+		dir, _ := path.Split(entry.Name)
+		if dir == prefix {
+			return entry
+		}
+	}
+	return entries[0]
+}
+
+func drawableQualifier(dir string) string {
+	parts := strings.Split(strings.Trim(dir, "/"), "/")
+	for index := 1; index < len(parts); index++ {
+		if parts[index-1] == "res" && strings.HasPrefix(parts[index], "drawable") {
+			return parts[index]
+		}
+	}
+	return ""
+}
+
+func sourceEntryForTarget(entries []*zip.File, targetDir string) *zip.File {
+	for _, entry := range entries {
+		dir, _ := path.Split(entry.Name)
+		if dir == targetDir {
+			return entry
+		}
+	}
+	targetQualifier := drawableQualifier(targetDir)
+	for _, entry := range entries {
+		dir, _ := path.Split(entry.Name)
+		if targetQualifier != "" && drawableQualifier(dir) == targetQualifier {
+			return entry
+		}
+	}
+	return preferredThemeEntry(entries)
+}
+
+func readThemeEntry(entry *zip.File) ([]byte, error) {
+	if entry == nil {
+		return nil, errors.New("theme icon is missing")
+	}
+	data, err := (replacementIcon{entry: entry}).read(maxThemeIconSize)
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.HasPrefix(data, []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}) {
+		return nil, fmt.Errorf("theme icon is not PNG: %q", entry.Name)
+	}
+	return data, nil
+}
+
+func previewThemeIcon(theme, packageName string, output io.Writer) error {
+	if !validPackage(packageName) {
+		return errors.New("invalid preview package")
+	}
+	reader, _, err := openThemeArchive(theme)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	entry := preferredThemeEntry(themeIconGroups(reader.File)[packageName])
+	data, err := readThemeEntry(entry)
+	if err != nil {
+		return err
+	}
+	_, err = output.Write(data)
+	return err
+}
+
+func stitchThemes(target, donor, selectionFile, output string) (stitchResult, error) {
+	result := stitchResult{}
+	if output == "" {
+		return result, errors.New("missing output path")
+	}
+	if targetAbs, _ := filepath.Abs(target); targetAbs != "" {
+		if outputAbs, _ := filepath.Abs(output); outputAbs == targetAbs {
+			return result, errors.New("output must not overwrite the target directly")
+		}
+	}
+	targetReader, targetInfo, err := openThemeArchive(target)
+	if err != nil {
+		return result, err
+	}
+	defer targetReader.Close()
+	donorReader, donorInfo, err := openThemeArchive(donor)
+	if err != nil {
+		return result, err
+	}
+	defer donorReader.Close()
+	if os.SameFile(targetInfo, donorInfo) {
+		return result, errors.New("target and donor themes must be different")
+	}
+	selected, err := loadPackageSet(selectionFile, maxStitchCount)
+	if err != nil {
+		return result, err
+	}
+	if len(selected) == 0 {
+		return result, errors.New("no packages selected for stitching")
+	}
+	targetIcons := themeIconGroups(targetReader.File)
+	donorIcons := themeIconGroups(donorReader.File)
+	replacements := make(map[string]replacementIcon)
+	targetPrefix := preferredDrawablePrefix(targetReader.File)
+	for packageName := range selected {
+		sourceEntries := donorIcons[packageName]
+		if len(sourceEntries) == 0 {
+			return result, fmt.Errorf("selected package is missing from donor theme: %s", packageName)
+		}
+		targetEntries := targetIcons[packageName]
+		if len(targetEntries) == 0 {
+			replacements[targetPrefix+packageName+".png"] = replacementIcon{entry: preferredThemeEntry(sourceEntries)}
+			result.Added++
+			continue
+		}
+		for _, targetEntry := range targetEntries {
+			targetDir, _ := path.Split(targetEntry.Name)
+			replacements[targetEntry.Name] = replacementIcon{entry: sourceEntryForTarget(sourceEntries, targetDir)}
+		}
+		result.Replaced++
+	}
+	result.Selected = len(selected)
+	result.SourceSize = targetInfo.Size()
+	if err := writePreservingArchive(target, output, replacements); err != nil {
+		return stitchResult{}, err
+	}
+	if err := verify(output, replacements); err != nil {
+		_ = os.Remove(output)
+		return stitchResult{}, err
+	}
+	return result, nil
 }
 
 func patch(source, output, iconsDir, prefix string) (err error) {
@@ -154,7 +487,7 @@ type centralRecord struct {
 	raw  []byte
 }
 
-func writePreservingArchive(source, output string, replacements map[string]iconFile) (err error) {
+func writePreservingArchive(source, output string, replacements map[string]replacementIcon) (err error) {
 	data, err := os.ReadFile(source)
 	if err != nil {
 		return fmt.Errorf("cannot read source archive: %w", err)
@@ -214,7 +547,14 @@ func writePreservingArchive(source, output string, replacements map[string]iconF
 	now := time.Now()
 	for _, name := range names {
 		icon := replacements[name]
-		local, central, buildErr := buildStoredEntry(name, icon.data, currentOffset, now)
+		iconData, readErr := icon.read(maxThemeIconSize)
+		if readErr != nil {
+			return readErr
+		}
+		if !bytes.HasPrefix(iconData, []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}) {
+			return fmt.Errorf("replacement is not PNG: %q", name)
+		}
+		local, central, buildErr := buildStoredEntry(name, iconData, currentOffset, now)
 		if buildErr != nil {
 			return buildErr
 		}
@@ -381,12 +721,12 @@ func loadIcons(dir string) ([]iconFile, error) {
 	return icons, nil
 }
 
-func replacementTargets(entries []*zip.File, icons []iconFile, fallbackPrefix string, missingOnly bool) map[string]iconFile {
+func replacementTargets(entries []*zip.File, icons []iconFile, fallbackPrefix string, missingOnly bool) map[string]replacementIcon {
 	byName := make(map[string]iconFile, len(icons))
 	for _, icon := range icons {
 		byName[icon.name] = icon
 	}
-	targets := make(map[string]iconFile, len(icons))
+	targets := make(map[string]replacementIcon, len(icons))
 	matched := make(map[string]bool, len(icons))
 	for _, entry := range entries {
 		dir, name := path.Split(entry.Name)
@@ -396,12 +736,12 @@ func replacementTargets(entries []*zip.File, icons []iconFile, fallbackPrefix st
 		}
 		matched[name] = true
 		if !missingOnly {
-			targets[entry.Name] = icon
+			targets[entry.Name] = replacementIcon{data: icon.data}
 		}
 	}
 	for _, icon := range icons {
 		if !matched[icon.name] {
-			targets[fallbackPrefix+icon.name] = icon
+			targets[fallbackPrefix+icon.name] = replacementIcon{data: icon.data}
 		}
 	}
 	return targets
@@ -442,28 +782,28 @@ func isDrawableDirectory(dir string) bool {
 	return false
 }
 
-func verify(output string, expectedTargets map[string]iconFile) error {
+func verify(output string, expectedTargets map[string]replacementIcon) error {
 	reader, err := zip.OpenReader(output)
 	if err != nil {
 		return fmt.Errorf("generated ZIP is invalid: %w", err)
 	}
 	defer reader.Close()
 
-	expected := make(map[string][]byte, len(expectedTargets))
-	for name, icon := range expectedTargets {
-		expected[name] = icon.data
-	}
-	found := make(map[string]bool, len(expected))
+	found := make(map[string]bool, len(expectedTargets))
 	for _, entry := range reader.File {
-		want, ok := expected[entry.Name]
+		icon, ok := expectedTargets[entry.Name]
 		if !ok {
 			continue
+		}
+		want, readExpectedErr := icon.read(maxThemeIconSize)
+		if readExpectedErr != nil {
+			return readExpectedErr
 		}
 		stream, openErr := entry.Open()
 		if openErr != nil {
 			return fmt.Errorf("cannot verify %q: %w", entry.Name, openErr)
 		}
-		got, readErr := io.ReadAll(io.LimitReader(stream, maxIconSize+1))
+		got, readErr := io.ReadAll(io.LimitReader(stream, maxThemeIconSize+1))
 		closeErr := stream.Close()
 		if readErr != nil || closeErr != nil {
 			return fmt.Errorf("cannot verify %q", entry.Name)
@@ -473,7 +813,7 @@ func verify(output string, expectedTargets map[string]iconFile) error {
 		}
 		found[entry.Name] = true
 	}
-	if len(found) != len(expected) {
+	if len(found) != len(expectedTargets) {
 		return errors.New("not all icons were written")
 	}
 	return nil

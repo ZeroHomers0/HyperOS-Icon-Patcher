@@ -42,6 +42,182 @@ func TestInspectArchiveReturnsDrawablePNGCountAndPrefix(t *testing.T) {
 	}
 }
 
+func TestCatalogThemesFiltersInstalledPackagesAndClassifiesRows(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target.mrc")
+	donor := filepath.Join(root, "donor.mrc")
+	packages := filepath.Join(root, "packages.txt")
+	createTestZIP(t, target, map[string][]byte{
+		"res/drawable-xxhdpi/com.example.replace.png": testPNG(1),
+	})
+	createTestZIP(t, donor, map[string][]byte{
+		"res/drawable-xxhdpi/com.example.replace.png": testPNG(2),
+		"res/drawable-xxhdpi/com.example.add.png":     testPNG(3),
+		"res/drawable-xxhdpi/com.example.hidden.png":  testPNG(4),
+	})
+	if err := os.WriteFile(packages, []byte("com.example.replace\ncom.example.add\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := catalogThemes(target, donor, packages, &output); err != nil {
+		t.Fatal(err)
+	}
+	var catalog stitchCatalog
+	if err := json.Unmarshal(output.Bytes(), &catalog); err != nil {
+		t.Fatal(err)
+	}
+	if catalog.TargetFingerprint == "" || catalog.SourceFingerprint == "" {
+		t.Fatal("catalog fingerprints are missing")
+	}
+	if len(catalog.Rows) != 2 || catalog.Rows[0].PackageName != "com.example.add" || catalog.Rows[0].Kind != "add" || catalog.Rows[1].Kind != "replace" {
+		t.Fatalf("unexpected catalog rows: %#v", catalog.Rows)
+	}
+}
+
+func TestPreviewThemeIconUsesPreferredDrawable(t *testing.T) {
+	root := t.TempDir()
+	theme := filepath.Join(root, "theme.mrc")
+	want := testPNG(7)
+	createTestZIP(t, theme, map[string][]byte{
+		"res/drawable-xhdpi/com.example.app.png":    testPNG(6),
+		"res/drawable-nodpi-v4/com.example.app.png": want,
+	})
+	var output bytes.Buffer
+	if err := previewThemeIcon(theme, "com.example.app", &output); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(output.Bytes(), want) {
+		t.Fatal("preview did not use the preferred drawable entry")
+	}
+}
+
+func TestStitchThemesAddsAndReplacesWithMatchingDensity(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target.mrc")
+	donor := filepath.Join(root, "donor.mrc")
+	selection := filepath.Join(root, "selection.txt")
+	output := filepath.Join(root, "output.mrc")
+	targetUntouched := bytes.Repeat([]byte("untouched"), 20)
+	donorXX := testPNG(8)
+	donorNoDPI := testPNG(9)
+	donorAdd := testPNG(10)
+	createTestZIP(t, target, map[string][]byte{
+		"description.xml": []byte("target"),
+		"res/drawable-xxhdpi/com.example.replace.png":   testPNG(1),
+		"res/drawable-nodpi-v4/com.example.replace.png": testPNG(2),
+		"res/drawable-xxhdpi/com.example.untouched.png": targetUntouched,
+	})
+	createTestZIP(t, donor, map[string][]byte{
+		"description.xml": []byte("donor"),
+		"res/drawable-xxhdpi/com.example.replace.png":   donorXX,
+		"res/drawable-nodpi-v4/com.example.replace.png": donorNoDPI,
+		"res/drawable-nodpi-v4/com.example.add.png":     donorAdd,
+	})
+	if err := os.WriteFile(selection, []byte("com.example.replace\ncom.example.add\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(donor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := stitchThemes(target, donor, selection, output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Selected != 2 || result.Added != 1 || result.Replaced != 1 {
+		t.Fatalf("unexpected stitch result: %#v", result)
+	}
+	if got := readEntry(t, output, "res/drawable-xxhdpi/com.example.replace.png"); !bytes.Equal(got, donorXX) {
+		t.Fatal("xxhdpi target did not use matching donor density")
+	}
+	if got := readEntry(t, output, "res/drawable-nodpi-v4/com.example.replace.png"); !bytes.Equal(got, donorNoDPI) {
+		t.Fatal("nodpi target did not use matching donor density")
+	}
+	if got := readEntry(t, output, "res/drawable-nodpi-v4/com.example.add.png"); !bytes.Equal(got, donorAdd) {
+		t.Fatal("missing icon was not added to the target preferred directory")
+	}
+	if got := readEntry(t, output, "res/drawable-xxhdpi/com.example.untouched.png"); !bytes.Equal(got, targetUntouched) {
+		t.Fatal("untouched target entry changed")
+	}
+	after, err := os.ReadFile(donor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("donor theme was modified")
+	}
+}
+
+func TestStitchThemesRejectsSameThemeAndEmptySelection(t *testing.T) {
+	root := t.TempDir()
+	theme := filepath.Join(root, "theme.mrc")
+	selection := filepath.Join(root, "selection.txt")
+	createTestZIP(t, theme, map[string][]byte{
+		"res/drawable-xxhdpi/com.example.app.png": testPNG(1),
+	})
+	if err := os.WriteFile(selection, []byte("com.example.app\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stitchThemes(theme, theme, selection, filepath.Join(root, "same.mrc")); err == nil {
+		t.Fatal("same target and donor theme was accepted")
+	}
+	empty := filepath.Join(root, "empty.txt")
+	if err := os.WriteFile(empty, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(root, "other.mrc")
+	createTestZIP(t, other, map[string][]byte{
+		"res/drawable-xxhdpi/com.example.app.png": testPNG(2),
+	})
+	if _, err := stitchThemes(theme, other, empty, filepath.Join(root, "empty.mrc")); err == nil {
+		t.Fatal("empty stitch selection was accepted")
+	}
+}
+
+func TestStitchThemesFallsBackToPreferredDonorDensity(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target.mrc")
+	donor := filepath.Join(root, "donor.mrc")
+	selection := filepath.Join(root, "selection.txt")
+	output := filepath.Join(root, "output.mrc")
+	want := testPNG(12)
+	createTestZIP(t, target, map[string][]byte{
+		"res/drawable-xxxhdpi/com.example.app.png": testPNG(1),
+	})
+	createTestZIP(t, donor, map[string][]byte{
+		"res/drawable-xhdpi/com.example.app.png":    testPNG(11),
+		"res/drawable-nodpi-v4/com.example.app.png": want,
+	})
+	if err := os.WriteFile(selection, []byte("com.example.app\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stitchThemes(target, donor, selection, output); err != nil {
+		t.Fatal(err)
+	}
+	if got := readEntry(t, output, "res/drawable-xxxhdpi/com.example.app.png"); !bytes.Equal(got, want) {
+		t.Fatal("stitch did not use the preferred donor icon when the target density was unavailable")
+	}
+}
+
+func TestStitchThemesRejectsInvalidDonorPNG(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target.mrc")
+	donor := filepath.Join(root, "donor.mrc")
+	selection := filepath.Join(root, "selection.txt")
+	createTestZIP(t, target, map[string][]byte{
+		"res/drawable-xxhdpi/com.example.app.png": testPNG(1),
+	})
+	createTestZIP(t, donor, map[string][]byte{
+		"res/drawable-xxhdpi/com.example.app.png": []byte("not-a-png"),
+	})
+	if err := os.WriteFile(selection, []byte("com.example.app\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stitchThemes(target, donor, selection, filepath.Join(root, "output.mrc")); err == nil {
+		t.Fatal("invalid donor PNG was accepted")
+	}
+}
+
 func TestPatchPreservesOriginalAndReplacesIcon(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "source.mrc")
@@ -348,4 +524,8 @@ func readEntry(t *testing.T, filename, name string) []byte {
 	}
 	t.Fatalf("entry not found: %s", name)
 	return nil
+}
+
+func testPNG(marker byte) []byte {
+	return append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, bytes.Repeat([]byte{marker}, 24)...)
 }

@@ -54,6 +54,14 @@ h1 { margin-bottom: 0; font-size: 28px; letter-spacing: -.8px; }
 h2 { margin-bottom: 10px; font-size: 17px; }
 .eyebrow { margin-bottom: 3px; color: var(--accent); font-size: 10px; font-weight: 800; letter-spacing: 1.4px; }
 main { max-width: 760px; margin: 0 auto; padding: 16px 14px 42px; }
+[hidden] { display: none !important; }
+.workspace-tabs {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px;
+  margin-bottom: 14px; padding: 5px; border: 1px solid var(--line); border-radius: 16px;
+  background: var(--card);
+}
+.workspace-tab { padding: 10px 8px; border: 0; background: transparent; color: var(--muted); }
+.workspace-tab.is-active { background: var(--accent); color: #fff; box-shadow: 0 4px 14px rgba(255,105,0,.2); }
 .card { margin-bottom: 14px; padding: 17px; background: var(--card); border: 1px solid var(--line); border-radius: 20px; }
 .muted, .hint { color: var(--muted); }
 .muted { margin-bottom: 12px; font-size: 13px; }
@@ -276,6 +284,45 @@ input[type=file] { display: none; }
 .recipe-head input { flex: 0 0 auto; }
 .recipe-actions { display: flex; margin: 0 0 0 8px; }
 .recipe-actions button { white-space: nowrap; }
+
+.field-label { display: block; margin: 12px 0 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.stitch-theme-card { border-color: #594024; }
+.stitch-direction { margin: 8px 0 -6px; color: var(--accent); font-size: 11px; font-weight: 750; text-align: center; }
+.stitch-theme-card > .compact-button { width: 100%; margin-top: 10px; }
+.stitch-tools { display: grid; grid-template-columns: minmax(120px, .7fr) minmax(0, 1.3fr); gap: 8px; margin-bottom: 10px; }
+.stitch-icons-card .selection-toolbar { flex-wrap: wrap; }
+.stitch-icons-card .selection-toolbar .muted { min-width: 100%; margin: 0; }
+.stitch-column-head {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px;
+  margin: 10px 0 6px; color: var(--muted); font-size: 10px; font-weight: 750; text-align: center;
+}
+.stitch-list { display: grid; gap: 10px; }
+.stitch-item {
+  display: block; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 15px;
+  background: var(--card-2); content-visibility: auto; contain-intrinsic-size: 154px;
+}
+.stitch-item:has(input:checked) { border-color: rgba(255,105,0,.72); box-shadow: inset 0 0 0 1px rgba(255,105,0,.3); }
+.stitch-item-head { display: flex; align-items: center; gap: 9px; min-width: 0; margin-bottom: 10px; }
+.stitch-item-meta { min-width: 0; flex: 1; }
+.stitch-item-meta strong, .stitch-item-meta small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stitch-item-meta strong { font-size: 13px; }
+.stitch-item-meta small { margin-top: 2px; color: var(--muted); font-size: 10px; }
+.stitch-badge { flex: 0 0 auto; padding: 4px 7px; border-radius: 999px; font-size: 10px; font-weight: 800; }
+.stitch-badge.add { background: rgba(45,180,105,.13); color: #64dfa0; }
+.stitch-badge.replace { background: rgba(255,105,0,.13); color: var(--accent); }
+.stitch-compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.stitch-preview {
+  display: grid; place-items: center; min-width: 0; height: 86px; overflow: hidden;
+  border: 1px solid var(--line); border-radius: 13px; background: var(--card);
+}
+.stitch-preview img { width: 68px; height: 68px; border-radius: 14px; object-fit: contain; }
+.stitch-preview-empty { color: var(--muted); font-size: 11px; font-weight: 700; }
+
+@media (max-width: 420px) {
+  .stitch-tools { grid-template-columns: 1fr; }
+  .stitch-preview { height: 76px; }
+  .stitch-preview img { width: 60px; height: 60px; }
+}
 
 /* Keep keyboard animation work inside the list instead of re-centering the whole page. */
 /* KernelSU WebView may report desktop-like width/pointer values on a phone.

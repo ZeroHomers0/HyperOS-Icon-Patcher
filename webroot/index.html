@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#111318">
   <title>HyperOS 图标补全器</title>
-  <link rel="stylesheet" href="style-110.css?v=151">
+  <link rel="stylesheet" href="style-110.css?v=160">
 </head>
 <body>
   <header>
@@ -21,15 +21,21 @@
   </header>
 
   <main>
+    <nav class="workspace-tabs" aria-label="功能分类">
+      <button id="modePatch" class="workspace-tab is-active" data-workspace="patch">修补图标</button>
+      <button id="modeStitch" class="workspace-tab" data-workspace="stitch">图标缝合</button>
+    </nav>
+
+    <div id="patchWorkspace" class="workspace">
     <details class="card guide">
-      <summary>使用方法与注意事项</summary>
+      <summary>修补图标使用方法</summary>
       <ol>
-        <li>先在小米主题商店下载一个不使用的图标主题。</li>
+        <li>先在小米主题商店下载一个主题。</li>
         <li>在“选择待修补主题”中选择一个主题，模块会自动读取手机端主题索引。</li>
         <li>创建或选择修补组；修补组与主题文件名无关，可以重复用于重新下载的主题。</li>
         <li>在“待修补图标”中选择应用和 PNG 图标，将它们添加到当前修补组。</li>
         <li>选择“仅补全缺失图标”或“覆盖同名图标”，再点击“修补主题”。</li>
-        <li>打开主题商店，在“我的／图标”中应用该占位主题。</li>
+        <li>打开主题商店，在“我的／主题/”中应用该主题或混搭应用图标。</li>
       </ol>
       <p>仅支持 PNG。模块会自动调整尺寸，确保每个新增图标不超过 50KB。写入异常时会自动回滚。</p>
     </details>
@@ -147,6 +153,61 @@
         <button id="groupCreate" class="primary compact-button">创建</button>
       </div>
     </dialog>
+    </div>
+
+    <div id="stitchWorkspace" class="workspace" hidden>
+      <details class="card guide">
+        <summary>图标缝合使用方法</summary>
+        <ol>
+          <li>选择需要被修改的目标主题。</li>
+          <li>选择提供图标的源主题；源主题不会被修改。</li>
+          <li>新增图标默认选中，已有图标必须切换到“覆盖已有”后手动选择。</li>
+          <li>确认选择后执行缝合，再到主题商店应用目标主题。</li>
+        </ol>
+      </details>
+
+      <section class="card stitch-theme-card">
+        <span class="step-label">步骤 1 <span id="stitchThemeState" class="step-state">未选择</span></span>
+        <h2>选择目标与源主题</h2>
+        <label class="field-label" for="stitchTarget">目标主题</label>
+        <select id="stitchTarget" class="search"><option value="">正在扫描主题</option></select>
+        <div class="stitch-direction" aria-hidden="true">接收图标 ↑</div>
+        <label class="field-label" for="stitchSource">源主题</label>
+        <select id="stitchSource" class="search"><option value="">正在扫描主题</option></select>
+        <button id="stitchSwap" class="compact-button">交换源和目标</button>
+        <p id="stitchThemeInfo" class="hint">请选择两个不同的主题</p>
+      </section>
+
+      <section class="card stitch-icons-card">
+        <span class="step-label">步骤 2 <span id="stitchIconState" class="step-state">等待主题</span></span>
+        <h2>选择要缝合的图标</h2>
+        <div class="stitch-tools">
+          <select id="stitchKind" class="search" aria-label="图标类型">
+            <option value="add">新增图标</option>
+            <option value="replace">覆盖已有</option>
+            <option value="all">全部可用</option>
+          </select>
+          <input id="stitchSearch" class="search" type="search" placeholder="搜索应用名称或包名">
+        </div>
+        <div class="selection-toolbar">
+          <span id="stitchCatalogInfo" class="muted">等待读取主题图标</span>
+          <button id="stitchSelectVisible" class="compact-button" disabled>全选当前</button>
+          <button id="stitchClearSelection" class="compact-button danger" disabled>清空</button>
+        </div>
+        <div class="stitch-column-head" aria-hidden="true"><span>目标主题</span><span>源主题</span></div>
+        <div id="stitchEmpty" class="empty">请选择目标主题和源主题</div>
+        <div id="stitchList" class="stitch-list"></div>
+      </section>
+
+      <section class="card action-card">
+        <span class="step-label">步骤 3 <span id="stitchApplyState" class="step-state">尚未缝合</span></span>
+        <h2>缝合到目标主题</h2>
+        <button id="stitchApply" class="primary full-button" disabled>请先选择图标</button>
+        <div id="stitchResult" class="result-card" hidden></div>
+        <div class="utility-actions"><button id="stitchOpenTheme">打开主题商店</button></div>
+        <p class="hint">源主题始终只读；目标主题写入异常时会自动回滚。</p>
+      </section>
+    </div>
 
     <details id="logPanel" class="log-panel">
       <summary>运行日志</summary>
@@ -155,10 +216,12 @@
   </main>
 
   <input id="iconInput" type="file" accept="image/png,.png" hidden>
-  <script type="module" src="ui-101.js?v=151"></script>
-  <script type="module" src="app-121.js?v=151"></script>
-  <script type="module" src="cache-101.js?v=151"></script>
-  <script type="module" src="recipe-123.js?v=151"></script>
+  <script src="workspace-160.js?v=160"></script>
+  <script type="module" src="ui-101.js?v=160"></script>
+  <script type="module" src="app-121.js?v=160"></script>
+  <script type="module" src="cache-101.js?v=160"></script>
+  <script type="module" src="recipe-123.js?v=160"></script>
+  <script type="module" src="stitch-160.js?v=160"></script>
   <script src="theme-094.js"></script>
 </body>
 </html>

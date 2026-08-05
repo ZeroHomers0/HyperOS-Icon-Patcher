@@ -72,6 +72,22 @@ CLONE_ID=$(run group_clone "$GROUP_ID" "主力图标副本" | sed 's/^OK://')
 [ -n "$CLONE_ID" ]
 run group_delete "$CLONE_ID" >/dev/null
 
+# Stitch sessions pin both theme fingerprints and accept a bounded chunked selection manifest.
+printf 'target-placeholder' > "$HIP_CACHE_ROOT/stitch-target.mrc"
+printf 'source-placeholder' > "$HIP_CACHE_ROOT/stitch-source.mrc"
+TARGET_FP=$(stat -c '%s:%Y' "$HIP_CACHE_ROOT/stitch-target.mrc")
+SOURCE_FP=$(stat -c '%s:%Y' "$HIP_CACHE_ROOT/stitch-source.mrc")
+expect_fail run stitch_begin stitch-target.mrc stitch-target.mrc "$TARGET_FP" "$TARGET_FP"
+expect_fail run stitch_begin stitch-target.mrc stitch-source.mrc 'bad' "$SOURCE_FP"
+STITCH_ID=$(run stitch_begin stitch-target.mrc stitch-source.mrc "$TARGET_FP" "$SOURCE_FP" | sed 's/^OK://')
+[ -n "$STITCH_ID" ]
+STITCH_SELECTION=$(printf 'com.example.one\n' | base64 | tr -d '\n')
+run stitch_upload_chunk "$STITCH_ID" "$STITCH_SELECTION" >/dev/null
+[ -s "$HIP_DATA_DIR/transfer/stitch-$STITCH_ID/selection.b64" ]
+expect_fail run stitch_upload_chunk "$STITCH_ID" 'not-valid!'
+run stitch_clear "$STITCH_ID" >/dev/null
+[ ! -e "$HIP_DATA_DIR/transfer/stitch-$STITCH_ID" ]
+
 # Simulate interrupted atomic switches and abandoned transfer files.
 mkdir -p "$HIP_DATA_DIR/patch-groups/$GROUP_ID/icons-next"
 mv "$HIP_DATA_DIR/patch-groups/$GROUP_ID/icons" "$HIP_DATA_DIR/patch-groups/$GROUP_ID/icons-previous"

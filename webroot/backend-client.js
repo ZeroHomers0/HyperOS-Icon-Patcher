@@ -4,7 +4,8 @@ let callbackSequence = 0;
 const quote = (value) => `'${String(value).replaceAll("'", "'\\''")}'`;
 
 function timeoutFor(operation) {
-  if (operation === "fast_patch") return 240000;
+  if (["fast_patch", "stitch_apply"].includes(operation)) return 240000;
+  if (operation === "stitch_catalog") return 120000;
   if (["group_clone", "recipe_delete_batch", "maintenance"].includes(operation)) return 180000;
   if (operation === "scan_cache") return 90000;
   return 60000;

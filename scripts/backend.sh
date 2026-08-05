@@ -16,6 +16,8 @@ MAX_GROUP_NAME_BYTES=120
 MAX_PACKAGE_BYTES=255
 MAX_ICON_BYTES=51200
 MAX_UPLOAD_BASE64_BYTES=70000
+MAX_STITCH_SELECTION_BASE64_BYTES=700000
+MAX_STITCH_SESSIONS=8
 MAX_DATA_KB=262144
 FREE_SPACE_RESERVE_KB=8192
 
@@ -168,6 +170,16 @@ valid_zip() {
 
 list_apps() {
   pm list packages -3 2>/dev/null |
+    "$BB" sed 's/^package://' |
+    "$BB" sort -u
+}
+
+list_all_apps() {
+  if [ -n "$HIP_PACKAGES_FILE" ] && [ -f "$HIP_PACKAGES_FILE" ]; then
+    "$BB" sed '/^$/d' "$HIP_PACKAGES_FILE" | "$BB" sort -u
+    return
+  fi
+  pm list packages 2>/dev/null |
     "$BB" sed 's/^package://' |
     "$BB" sort -u
 }
@@ -963,10 +975,289 @@ recipe_preview() {
   "$BB" base64 "$FILE" | "$BB" tr -d '\n'
 }
 
+# ---------- 主题图标缝合 ----------
+
+resolve_theme_helper() {
+  if [ -n "$HIP_HELPER" ] && [ -x "$HIP_HELPER" ]; then
+    printf '%s' "$HIP_HELPER"
+    return 0
+  fi
+  ARCH=$("$BB" uname -m 2>/dev/null)
+  case "$ARCH" in
+    aarch64|arm64) HELPER="$MODDIR/bin/hipzip-arm64" ;;
+    *) return 1 ;;
+  esac
+  [ -x "$HELPER" ] || return 1
+  printf '%s' "$HELPER"
+}
+
+theme_fingerprint() {
+  FP_SIZE=$("$BB" stat -c '%s' "$1" 2>/dev/null)
+  FP_MTIME=$("$BB" stat -c '%Y' "$1" 2>/dev/null)
+  [ -n "$FP_SIZE" ] && [ -n "$FP_MTIME" ] || return 1
+  printf '%s:%s' "$FP_SIZE" "$FP_MTIME"
+}
+
+valid_fingerprint() {
+  case "$1" in ''|*[!0-9:]*) return 1 ;; esac
+  FP_LEFT=${1%%:*}
+  FP_RIGHT=${1#*:}
+  [ -n "$FP_LEFT" ] && [ -n "$FP_RIGHT" ] && [ "$FP_RIGHT" != "$1" ] || return 1
+  case "$FP_RIGHT" in *:*) return 1 ;; esac
+  return 0
+}
+
+stitch_session_dir() {
+  valid_group_id "$1" || return 1
+  printf '%s/stitch-%s' "$TRANSFER" "$1"
+}
+
+stitch_catalog() {
+  TARGET_FILE=$(cache_path "$1") || {
+    echo "ERROR:目标主题文件名无效"
+    exit 2
+  }
+  SOURCE_FILE=$(cache_path "$2") || {
+    echo "ERROR:源主题文件名无效"
+    exit 2
+  }
+  [ "$TARGET_FILE" != "$SOURCE_FILE" ] || {
+    echo "ERROR:源主题和目标主题不能相同"
+    exit 2
+  }
+  [ -f "$TARGET_FILE" ] && [ -f "$SOURCE_FILE" ] || {
+    echo "ERROR:选择的主题文件不存在"
+    exit 2
+  }
+  HELPER=$(resolve_theme_helper) || {
+    echo "ERROR:当前设备不是 Android ARM64，无法读取主题图标"
+    exit 3
+  }
+  PACKAGES_FILE="$TRANSFER/installed-packages-$$.txt"
+  rm -f "$PACKAGES_FILE"
+  list_all_apps > "$PACKAGES_FILE" || {
+    rm -f "$PACKAGES_FILE"
+    echo "ERROR:无法读取已安装应用列表"
+    exit 3
+  }
+  OUTPUT=$("$HELPER" -source "$TARGET_FILE" -donor "$SOURCE_FILE" -packages "$PACKAGES_FILE" -catalog 2>&1)
+  STATUS=$?
+  rm -f "$PACKAGES_FILE"
+  if [ "$STATUS" -ne 0 ]; then
+    echo "ERROR:主题图标目录读取失败：${OUTPUT#ERROR:}"
+    exit 3
+  fi
+  printf '%s\n' "$OUTPUT"
+}
+
+stitch_preview() {
+  THEME_FILE=$(cache_path "$1") || {
+    echo "ERROR:主题文件名无效"
+    exit 2
+  }
+  valid_package "$2" || {
+    echo "ERROR:应用包名无效"
+    exit 2
+  }
+  [ -f "$THEME_FILE" ] || {
+    echo "ERROR:主题文件不存在"
+    exit 2
+  }
+  HELPER=$(resolve_theme_helper) || {
+    echo "ERROR:当前设备不是 Android ARM64，无法读取主题图标"
+    exit 3
+  }
+  PREVIEW_FILE="$TRANSFER/stitch-preview-$$.png"
+  PREVIEW_ERROR="$TRANSFER/stitch-preview-$$.err"
+  rm -f "$PREVIEW_FILE" "$PREVIEW_ERROR"
+  "$HELPER" -source "$THEME_FILE" -package "$2" -preview > "$PREVIEW_FILE" 2> "$PREVIEW_ERROR"
+  STATUS=$?
+  if [ "$STATUS" -ne 0 ]; then
+    OUTPUT=$("$BB" cat "$PREVIEW_ERROR" 2>/dev/null)
+    rm -f "$PREVIEW_FILE" "$PREVIEW_ERROR"
+    echo "ERROR:主题图标预览失败：${OUTPUT#ERROR:}"
+    exit 3
+  fi
+  [ -s "$PREVIEW_FILE" ] || {
+    rm -f "$PREVIEW_FILE" "$PREVIEW_ERROR"
+    echo "ERROR:主题图标预览为空"
+    exit 3
+  }
+  "$BB" base64 "$PREVIEW_FILE" | "$BB" tr -d '\n'
+  rm -f "$PREVIEW_FILE" "$PREVIEW_ERROR"
+}
+
+stitch_begin() {
+  TARGET_FILE=$(cache_path "$1") || {
+    echo "ERROR:目标主题文件名无效"
+    exit 2
+  }
+  SOURCE_FILE=$(cache_path "$2") || {
+    echo "ERROR:源主题文件名无效"
+    exit 2
+  }
+  [ "$TARGET_FILE" != "$SOURCE_FILE" ] || {
+    echo "ERROR:源主题和目标主题不能相同"
+    exit 2
+  }
+  valid_fingerprint "$3" && valid_fingerprint "$4" || {
+    echo "ERROR:主题文件指纹无效"
+    exit 2
+  }
+  TARGET_FINGERPRINT=$(theme_fingerprint "$TARGET_FILE")
+  SOURCE_FINGERPRINT=$(theme_fingerprint "$SOURCE_FILE")
+  [ "$TARGET_FINGERPRINT" = "$3" ] && [ "$SOURCE_FINGERPRINT" = "$4" ] || {
+    echo "ERROR:主题文件已发生变化，请重新加载"
+    exit 2
+  }
+  SESSION_COUNT=$(find "$TRANSFER" -mindepth 1 -maxdepth 1 -type d -name 'stitch-*' 2>/dev/null | "$BB" wc -l | "$BB" tr -d ' ')
+  [ "${SESSION_COUNT:-0}" -lt "$MAX_STITCH_SESSIONS" ] || {
+    echo "ERROR:待处理的图标缝合会话过多，请重新打开 WebUI 后重试"
+    exit 3
+  }
+  SESSION_ID=$("$BB" cat /proc/sys/kernel/random/uuid 2>/dev/null)
+  [ -n "$SESSION_ID" ] || SESSION_ID="$(date +%s)-$$"
+  valid_group_id "$SESSION_ID" || {
+    echo "ERROR:无法创建图标缝合会话"
+    exit 3
+  }
+  SESSION_DIR="$TRANSFER/stitch-$SESSION_ID"
+  mkdir "$SESSION_DIR" || {
+    echo "ERROR:无法创建图标缝合会话"
+    exit 3
+  }
+  if ! {
+    printf '%s\n' "$1" > "$SESSION_DIR/target.name" &&
+      printf '%s\n' "$2" > "$SESSION_DIR/source.name" &&
+      printf '%s\n' "$3" > "$SESSION_DIR/target.fp" &&
+      printf '%s\n' "$4" > "$SESSION_DIR/source.fp" &&
+      : > "$SESSION_DIR/selection.b64"
+  }; then
+    rm -rf "$SESSION_DIR"
+    echo "ERROR:无法保存图标缝合会话"
+    exit 3
+  fi
+  echo "OK:$SESSION_ID"
+}
+
+stitch_upload_chunk() {
+  SESSION_DIR=$(stitch_session_dir "$1") || {
+    echo "ERROR:图标缝合会话无效"
+    exit 2
+  }
+  [ -d "$SESSION_DIR" ] && [ -f "$SESSION_DIR/selection.b64" ] || {
+    echo "ERROR:图标缝合会话不存在"
+    exit 2
+  }
+  CHUNK=$2
+  case "$CHUNK" in
+    ''|*[!A-Za-z0-9+/=]*) echo "ERROR:图标选择数据无效"; exit 2 ;;
+  esac
+  [ "${#CHUNK}" -le "$MAX_UPLOAD_BASE64_BYTES" ] || {
+    echo "ERROR:图标选择上传分块过大"
+    exit 2
+  }
+  printf '%s' "$CHUNK" >> "$SESSION_DIR/selection.b64" || {
+    echo "ERROR:无法保存图标选择数据"
+    exit 3
+  }
+  SELECTION_SIZE=$("$BB" stat -c '%s' "$SESSION_DIR/selection.b64" 2>/dev/null)
+  [ -n "$SELECTION_SIZE" ] && [ "$SELECTION_SIZE" -le "$MAX_STITCH_SELECTION_BASE64_BYTES" ] || {
+    rm -rf "$SESSION_DIR"
+    echo "ERROR:图标选择数据超过限制"
+    exit 2
+  }
+  echo "OK"
+}
+
+stitch_apply() {
+  SESSION_DIR=$(stitch_session_dir "$1") || {
+    echo "ERROR:图标缝合会话无效"
+    exit 2
+  }
+  [ -d "$SESSION_DIR" ] || {
+    echo "ERROR:图标缝合会话不存在"
+    exit 2
+  }
+  acquire_operation_lock || exit 2
+  trap 'rm -rf "$OPERATION_LOCK" "$SESSION_DIR"' EXIT HUP INT TERM
+  TARGET_NAME=$("$BB" sed -n '1p' "$SESSION_DIR/target.name" 2>/dev/null)
+  SOURCE_NAME=$("$BB" sed -n '1p' "$SESSION_DIR/source.name" 2>/dev/null)
+  EXPECTED_TARGET_FP=$("$BB" sed -n '1p' "$SESSION_DIR/target.fp" 2>/dev/null)
+  EXPECTED_SOURCE_FP=$("$BB" sed -n '1p' "$SESSION_DIR/source.fp" 2>/dev/null)
+  TARGET_FILE=$(cache_path "$TARGET_NAME") || {
+    echo "ERROR:目标主题文件名无效"
+    exit 2
+  }
+  SOURCE_FILE=$(cache_path "$SOURCE_NAME") || {
+    echo "ERROR:源主题文件名无效"
+    exit 2
+  }
+  [ "$TARGET_FILE" != "$SOURCE_FILE" ] || {
+    echo "ERROR:源主题和目标主题不能相同"
+    exit 2
+  }
+  CURRENT_TARGET_FP=$(theme_fingerprint "$TARGET_FILE")
+  CURRENT_SOURCE_FP=$(theme_fingerprint "$SOURCE_FILE")
+  [ "$CURRENT_TARGET_FP" = "$EXPECTED_TARGET_FP" ] && [ "$CURRENT_SOURCE_FP" = "$EXPECTED_SOURCE_FP" ] || {
+    echo "ERROR:主题文件已发生变化，请重新加载后选择"
+    exit 2
+  }
+  SELECTION_FILE="$SESSION_DIR/selection.txt"
+  "$BB" base64 -d "$SESSION_DIR/selection.b64" > "$SELECTION_FILE" 2>/dev/null || {
+    echo "ERROR:图标选择数据解码失败"
+    exit 2
+  }
+  [ -s "$SELECTION_FILE" ] || {
+    echo "ERROR:没有选择要缝合的图标"
+    exit 2
+  }
+  HELPER=$(resolve_theme_helper) || {
+    echo "ERROR:当前设备不是 Android ARM64，无法缝合主题"
+    exit 3
+  }
+  TARGET_SIZE=$("$BB" stat -c '%s' "$TARGET_FILE" 2>/dev/null)
+  ensure_free_bytes "$DATA" $((TARGET_SIZE + 4194304)) "模块数据目录" || exit 3
+  NEXT="$TRANSFER/active-next.bin"
+  rm -f "$TRANSFER/active.bin" "$NEXT"
+  OUTPUT=$("$HELPER" -source "$TARGET_FILE" -donor "$SOURCE_FILE" -selection "$SELECTION_FILE" -output "$NEXT" 2>&1)
+  STATUS=$?
+  if [ "$STATUS" -ne 0 ]; then
+    rm -f "$NEXT"
+    echo "ERROR:主题图标缝合失败：${OUTPUT#ERROR:}"
+    exit 3
+  fi
+  valid_zip "$NEXT" || {
+    rm -f "$NEXT"
+    echo "ERROR:图标缝合结果校验失败"
+    exit 3
+  }
+  mv -f "$NEXT" "$TRANSFER/active.bin" || {
+    rm -f "$NEXT"
+    echo "ERROR:无法切换图标缝合结果"
+    exit 3
+  }
+  printf '%s\n' "$OUTPUT"
+  PATCH_OUTPUT=$(trap - EXIT HUP INT TERM; patch_cache "$TARGET_NAME")
+  PATCH_STATUS=$?
+  printf '%s\n' "$PATCH_OUTPUT"
+  [ "$PATCH_STATUS" -eq 0 ] || exit "$PATCH_STATUS"
+}
+
+stitch_clear() {
+  SESSION_DIR=$(stitch_session_dir "$1") || {
+    echo "ERROR:图标缝合会话无效"
+    exit 2
+  }
+  rm -rf "$SESSION_DIR"
+  echo "OK"
+}
+
 # ---------- 启动恢复、暂存清理与系统操作 ----------
 
 clear_transfer() {
   rm -f "$TRANSFER/source.b64" "$TRANSFER/active.b64" "$TRANSFER/active.bin" "$TRANSFER/active-next.bin"
+  rm -f "$TRANSFER"/installed-packages-*.txt "$TRANSFER"/stitch-preview-*.png "$TRANSFER"/stitch-preview-*.err
   find "$TRANSFER" -maxdepth 1 -type f -name 'recipe-*.b64' -delete 2>/dev/null
   echo "OK"
 }
@@ -997,6 +1288,14 @@ maintenance() {
   for TEMP_FILE in "$TRANSFER"/active.bin "$TRANSFER"/active-next.bin "$TRANSFER"/active.b64 "$TRANSFER"/source.b64 "$TRANSFER"/recipe-*.b64; do
     [ -e "$TEMP_FILE" ] || continue
     rm -f "$TEMP_FILE" && CLEANED=$((CLEANED + 1))
+  done
+  for TEMP_FILE in "$TRANSFER"/installed-packages-*.txt "$TRANSFER"/stitch-preview-*.png "$TRANSFER"/stitch-preview-*.err; do
+    [ -e "$TEMP_FILE" ] || continue
+    rm -f "$TEMP_FILE" && CLEANED=$((CLEANED + 1))
+  done
+  for SESSION_DIR in "$TRANSFER"/stitch-*; do
+    [ -d "$SESSION_DIR" ] || continue
+    rm -rf "$SESSION_DIR" && CLEANED=$((CLEANED + 1))
   done
   for TEMP_FILE in "$CUSTOM_STAGE"/*.png "$CUSTOM_STAGE"/*.png.next; do
     [ -e "$TEMP_FILE" ] || continue
@@ -1086,6 +1385,12 @@ case "$1" in
   recipe_list_detail) recipe_list_detail "$2" ;;
   recipe_delete_batch) recipe_delete_batch "$2" "$3" ;;
   recipe_preview) recipe_preview "$2" "$3" ;;
+  stitch_catalog) stitch_catalog "$2" "$3" ;;
+  stitch_preview) stitch_preview "$2" "$3" ;;
+  stitch_begin) stitch_begin "$2" "$3" "$4" "$5" ;;
+  stitch_upload_chunk) stitch_upload_chunk "$2" "$3" ;;
+  stitch_apply) stitch_apply "$2" ;;
+  stitch_clear) stitch_clear "$2" ;;
   clear_transfer) clear_transfer ;;
   clear_recipe_stage) clear_recipe_stage ;;
   maintenance) maintenance ;;
